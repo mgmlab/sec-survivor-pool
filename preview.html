@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Device Preview — SEC Survivor Pool</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #1a2133; --panel-2: #232c42; --border: #2e3752;
+    --text: #e8ecf6; --muted: #8b93ab; --accent: #d4a017;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  header { padding: 1rem 1.25rem 0.5rem; }
+  h1 { margin: 0 0 0.2rem; font-size: 1.1rem; }
+  .sub { color: var(--muted); font-size: 0.85rem; }
+  .controls {
+    display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;
+    padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border);
+  }
+  label { font-size: 0.85rem; color: var(--muted); display: inline-flex; align-items: center; gap: 0.35rem; }
+  select, input[type="text"] {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    padding: 0.4rem 0.5rem; border-radius: 6px; font-size: 0.85rem; font-family: inherit;
+  }
+  input[type="text"] { min-width: 22rem; }
+  button {
+    background: var(--accent); color: #1a1200; border: none; padding: 0.45rem 0.9rem;
+    border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 0.85rem; font-family: inherit;
+  }
+  button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+
+  .note {
+    margin: 0.9rem 1.25rem; padding: 0.7rem 0.9rem; background: var(--panel);
+    border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 8px; font-size: 0.82rem; color: var(--muted); line-height: 1.5; max-width: 60rem;
+  }
+  .note strong { color: var(--text); }
+
+  .stage { display: flex; gap: 1.5rem; padding: 1.25rem; overflow-x: auto; align-items: flex-start; }
+  .device { flex: 0 0 auto; }
+  .device-label { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.4rem; text-align: center; }
+  .device-label b { color: var(--text); font-weight: 600; }
+  .screen {
+    position: relative; background: #000; border: 10px solid #2a2a2e;
+    border-radius: 28px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+  .screen iframe { display: block; border: 0; background: var(--bg); }
+  /* Purely cosmetic address-bar stand-in, so the amount of screen real
+     estate a real browser eats is visible at a glance. It does NOT
+     reproduce the iOS layout-viewport overlay behaviour — see the note. */
+  .chrome-sim {
+    position: absolute; top: 0; left: 0; right: 0; height: 111px;
+    background: linear-gradient(#f2f2f7, #e8e8ed); color: #333;
+    display: flex; align-items: flex-end; justify-content: center; padding-bottom: 10px;
+    font-size: 13px; pointer-events: none; opacity: 0.94;
+  }
+  .chrome-sim span { background: #fff; border-radius: 999px; padding: 6px 40px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Device Preview</h1>
+  <div class="sub">Side-by-side layout check across phone sizes. Standalone — nothing here touches the app.</div>
+</header>
+
+<div class="controls">
+  <label>Page
+    <select id="pageSel">
+      <option value="index.html">Player page (index.html)</option>
+      <option value="admin.html">Admin page (admin.html)</option>
+    </select>
+  </label>
+  <label>Base URL
+    <input type="text" id="baseUrl">
+  </label>
+  <label><input type="checkbox" id="debugChk"> add ?debug=1</label>
+  <label><input type="checkbox" id="chromeChk"> show address-bar overlay</label>
+  <button id="reloadBtn">Reload all</button>
+  <button class="secondary" id="rotateBtn">Rotate</button>
+</div>
+
+<div class="note">
+  <strong>What this can and can't tell you.</strong> This is good for layout, text wrapping, tap-target
+  sizes and how much fits on screen. It <strong>cannot</strong> reproduce the header-hidden-behind-the-address-bar
+  bug — that one comes from real iOS browser chrome overlaying the page's layout viewport, which no desktop
+  preview (this page or Chrome DevTools) simulates. Only a real phone confirms that. The
+  "show address-bar overlay" checkbox is a cosmetic stand-in to show roughly how much a real browser covers.
+  <br><br>
+  Chrome DevTools does the same job with more presets: <strong>F12</strong>, then <strong>Ctrl+Shift+M</strong>.
+  <br><br>
+  Base URL defaults to this page's own folder. If you point it at a <em>different</em> origin, the frames may
+  show "Couldn't load the pool" — browsers can block sign-in storage inside a cross-origin iframe. That's the
+  preview's limitation, not a fault in the app.
+</div>
+
+<div class="stage" id="stage"></div>
+
+<script>
+  // CSS pixel dimensions (not physical pixels) — what the page actually lays out against.
+  const DEVICES = [
+    { name: 'iPhone 16 Pro Max', w: 440, h: 956, note: "Brad's phone" },
+    { name: 'iPhone 16 / 15',    w: 393, h: 852 },
+    { name: 'iPhone SE',         w: 375, h: 667, note: 'smallest common' },
+    { name: 'Pixel 8',           w: 412, h: 915 },
+    { name: 'Galaxy S24',        w: 360, h: 780, note: 'narrowest common' },
+    { name: 'iPad mini',         w: 744, h: 1133 },
+  ];
+
+  let rotated = false;
+  const $ = id => document.getElementById(id);
+
+  // Default to this page's own directory. Firebase's anonymous auth can be
+  // blocked inside a CROSS-origin iframe by browser storage partitioning —
+  // pointing at the live site from a local copy shows "Couldn't load the
+  // pool" for that reason, not because anything is broken. Same-origin
+  // (open preview.html from wherever the app is served) always works.
+  $('baseUrl').value = location.href.replace(/[^/]*$/, '');
+
+  function url() {
+    const base = $('baseUrl').value.replace(/\/+$/, '') + '/';
+    const page = $('pageSel').value;
+    const debug = $('debugChk').checked ? '?debug=1' : '';
+    // Cache-bust so "Reload all" actually refetches rather than showing a stale frame.
+    const bust = (debug ? '&' : '?') + 'preview=' + Date.now();
+    return base + page + debug + bust;
+  }
+
+  function render() {
+    const showChrome = $('chromeChk').checked;
+    const src = url();
+    $('stage').innerHTML = DEVICES.map(d => {
+      const w = rotated ? d.h : d.w;
+      const h = rotated ? d.w : d.h;
+      return `<div class="device">
+        <div class="device-label"><b>${d.name}</b> — ${w}×${h}${d.note ? ' · ' + d.note : ''}</div>
+        <div class="screen" style="width:${w}px;height:${h}px;">
+          <iframe src="${src}" width="${w}" height="${h}" loading="lazy"></iframe>
+          ${showChrome ? '<div class="chrome-sim"><span>mgmlab.github.io</span></div>' : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  ['pageSel', 'debugChk', 'chromeChk'].forEach(id => $(id).addEventListener('change', render));
+  $('reloadBtn').addEventListener('click', render);
+  $('rotateBtn').addEventListener('click', () => { rotated = !rotated; render(); });
+  render();
+</script>
+
+</body>
+</html>
