@@ -35,9 +35,14 @@ export function opponentAbbrFor(week, teamAbbr) {
 // selection for THAT week never counts against itself, while every other
 // week — past, current, or future-queued — does.
 // `picks` and `weeks` are the FULL /picks and /weeks objects (all weeks).
+// maxSecOpponentPicks caps how many times you can play against any ONE SEC
+// opponent (e.g. you can't just always pick whoever's playing this year's
+// worst SEC team) — it is NOT a shared pool across all SEC opponents. Playing
+// against Auburn twice and Georgia twice both max out independently; there's
+// no season-wide ceiling on how many different SEC opponents you face.
 export function usageStatsFor(picks, weeks, excludeWeek, pid) {
   const teamUseCounts = {};
-  let secOpponentCount = 0;
+  const secOpponentCounts = {}; // opponent abbr -> times you've played against them
 
   for (const [weekStr, weekPicks] of Object.entries(picks || {})) {
     const weekNum = Number(weekStr);
@@ -48,10 +53,12 @@ export function usageStatsFor(picks, weeks, excludeWeek, pid) {
     teamUseCounts[pick.team] = (teamUseCounts[pick.team] || 0) + 1;
 
     const opponentAbbr = opponentAbbrFor(weeks?.[weekNum], pick.team);
-    if (opponentAbbr && conferenceOf(opponentAbbr) === 'SEC') secOpponentCount++;
+    if (opponentAbbr && conferenceOf(opponentAbbr) === 'SEC') {
+      secOpponentCounts[opponentAbbr] = (secOpponentCounts[opponentAbbr] || 0) + 1;
+    }
   }
 
-  return { teamUseCounts, secOpponentCount };
+  return { teamUseCounts, secOpponentCounts };
 }
 
 /**
@@ -64,7 +71,7 @@ export function evaluateTeamsForWeek({ week, picks, weeks, weekNumber, pid, conf
   const maxTeamUses = config?.maxTeamUses ?? RULE_DEFAULTS.maxTeamUses;
   const maxSecOpponentPicks = config?.maxSecOpponentPicks ?? RULE_DEFAULTS.maxSecOpponentPicks;
   const eligibleConferences = config?.eligibleConferences || RULE_DEFAULTS.eligibleConferences;
-  const { teamUseCounts, secOpponentCount } = usageStatsFor(picks, weeks, weekNumber, pid);
+  const { teamUseCounts, secOpponentCounts } = usageStatsFor(picks, weeks, weekNumber, pid);
 
   return SEC_TEAMS.map(team => {
     const game = gameForTeam(week, team.abbr);
@@ -73,20 +80,23 @@ export function evaluateTeamsForWeek({ week, picks, weeks, weekNumber, pid, conf
     const teamExhausted = usesLeft <= 0;
 
     let opponentConf = null;
+    let opponentAbbr = null;
     if (game) {
       const isHome = game.home.abbr === team.abbr;
       const opp = isHome ? game.away : game.home;
       opponentConf = conferenceOf(opp.abbr);
+      opponentAbbr = opp.abbr;
     }
 
     const notPower4 = !!game && !opponentConf;
     const confDisabled = !!game && !!opponentConf && !eligibleConferences[opponentConf];
-    const secCapHit = !!game && opponentConf === 'SEC' && secOpponentCount >= maxSecOpponentPicks;
+    const secOpponentUsed = opponentAbbr ? (secOpponentCounts[opponentAbbr] || 0) : 0;
+    const secCapHit = !!game && opponentConf === 'SEC' && secOpponentUsed >= maxSecOpponentPicks;
 
     let flag = teamExhausted ? `used ${teamUseCounts[team.abbr]}/${maxTeamUses} times` : '';
     if (!selected) {
       if (notPower4 || confDisabled) flag = 'opponent not eligible (not Power 4)';
-      else if (secCapHit) flag = `SEC-vs-SEC limit reached (${secOpponentCount}/${maxSecOpponentPicks})`;
+      else if (secCapHit) flag = `already played vs ${opponentAbbr} ${secOpponentUsed}/${maxSecOpponentPicks} times`;
     }
 
     const disabled = !selected && (teamExhausted || !game || notPower4 || confDisabled || secCapHit);

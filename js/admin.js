@@ -272,12 +272,29 @@ function render() {
   }
 
   $('app').innerHTML = `
-    <header class="app-header"><h1>Admin — ${S.config.poolName || 'SEC Survivor Pool'}</h1></header>
+    <header class="app-header">
+      <h1>Admin — ${S.config.poolName || 'SEC Survivor Pool'}</h1>
+      <div class="me-wrap">
+        <button class="me-name" id="meNameBtn">Admin</button>
+        <div class="me-menu hidden" id="meMenu">
+          <button class="btn secondary" id="logoutBtn">Log out</button>
+        </div>
+      </div>
+    </header>
     ${renderConfigSection()}
     ${renderParticipantsSection()}
     ${renderWeeksSection()}
   `;
   wireAdminEvents();
+  $('meNameBtn')?.addEventListener('click', () => $('meMenu')?.classList.toggle('hidden'));
+  $('logoutBtn')?.addEventListener('click', logout);
+}
+
+async function logout() {
+  if (!confirm("Log out of admin? You'll need the passphrase again next time.")) return;
+  localStorage.removeItem('ssp_admin_pass');
+  await firebase.auth().signOut();
+  location.reload();
 }
 
 function renderConfigSection() {
@@ -309,9 +326,9 @@ function renderConfigSection() {
       times per season</label>
     </div>
     <div class="admin-row">
-      <label>Picks against an SEC opponent allowed up to
+      <label>Same SEC opponent may be played against up to
         <input id="maxSecOpponentPicks" type="number" min="0" style="width:3.5rem" value="${maxSecOpponentPicks}">
-      times per season</label>
+      times per season (no cap on different opponents)</label>
     </div>
     <div class="admin-row">
       <span>Eligible opponent conferences:</span>

@@ -41,6 +41,32 @@ body {
 }
 .app-header h1 { font-size: 1.15rem; margin: 0; }
 .me { font-size: 0.9rem; color: var(--muted); }
+.me-wrap { position: relative; }
+.me-name {
+  background: none;
+  border: none;
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+}
+.me-name:hover, .me-name:active { background: var(--panel-2); color: var(--text); }
+.me-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 0.3rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 10;
+  white-space: nowrap;
+}
+.me-menu.hidden { display: none; }
 .badge-out {
   background: var(--lose);
   color: #fff;

@@ -245,6 +245,7 @@ function render() {
   wireScheduleLinks();
   wireQueuePicks();
   wireRulesSection();
+  wireHeader();
 }
 
 function wireRulesSection() {
@@ -256,8 +257,27 @@ function wireRulesSection() {
 function renderHeader(participant) {
   return `<header class="app-header">
     <h1>${S.config.poolName || 'SEC Survivor Pool'}</h1>
-    <div class="me">${participant?.name || ''}${participant?.eliminatedWeek != null ? ' <span class="badge-out">ELIMINATED</span>' : ''}</div>
+    <div class="me-wrap">
+      <button class="me-name" id="meNameBtn">${participant?.name || ''}${participant?.eliminatedWeek != null ? ' <span class="badge-out">ELIMINATED</span>' : ''}</button>
+      <div class="me-menu hidden" id="meMenu">
+        <button class="btn secondary" id="unclaimSelfBtn">Unclaim seat</button>
+      </div>
+    </div>
   </header>`;
+}
+
+async function unclaimSelf() {
+  if (!me.participantId) return;
+  if (!confirm("Unclaim your seat? You'll need to tap your name again to claim it — handy if you're switching devices, but anyone could claim it in the meantime.")) return;
+  await db.ref(`participants/${me.participantId}/claimedBy`).set(null);
+  localStorage.removeItem('ssp_participant');
+  me.participantId = null;
+  render();
+}
+
+function wireHeader() {
+  $('meNameBtn')?.addEventListener('click', () => $('meMenu')?.classList.toggle('hidden'));
+  $('unclaimSelfBtn')?.addEventListener('click', unclaimSelf);
 }
 
 function renderRulesSection() {
@@ -280,7 +300,7 @@ function renderRulesSection() {
         <li>Each week, pick one SEC team you think will win. If they lose (or tie), you're eliminated.</li>
         <li>Last participant(s) still alive win the pool.</li>
         <li>Each team can be picked up to <strong>${maxTeamUses}</strong> time${maxTeamUses === 1 ? '' : 's'} all season.</li>
-        <li>You can pick a game against another SEC team up to <strong>${maxSecOpponentPicks}</strong> time${maxSecOpponentPicks === 1 ? '' : 's'} all season.</li>
+        <li>You can play against the same SEC opponent up to <strong>${maxSecOpponentPicks}</strong> time${maxSecOpponentPicks === 1 ? '' : 's'} all season — no cap on how many <em>different</em> SEC opponents you face, just on repeating the same one.</li>
         <li>Your team's opponent must belong to one of: <strong>${enabledConfs.join(', ') || 'none currently enabled'}</strong>.</li>
         <li>Picks lock at kickoff of the first SEC game each week — you can't change a pick after that.</li>
         <li>${noPickText}</li>
