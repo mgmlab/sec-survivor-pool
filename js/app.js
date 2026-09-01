@@ -320,6 +320,7 @@ function renderRulesSection() {
         <li>You can play against the same SEC opponent up to <strong>${maxSecOpponentPicks}</strong> time${maxSecOpponentPicks === 1 ? '' : 's'} all season — no cap on how many <em>different</em> SEC opponents you face, just on repeating the same one.</li>
         <li>Your team's opponent must belong to one of: <strong>${enabledConfs.join(', ') || 'none currently enabled'}</strong>.</li>
         <li>Picks lock at kickoff of the first SEC game each week — you can't change a pick after that.</li>
+        <li>You can plan ahead: the <strong>Schedule</strong> tab doubles as a pick queue, so you can lock in picks for any future week anytime, not just the current one. Change your mind anytime before that week locks, from either the Schedule tab or the Pick tab.</li>
         <li>${noPickText}</li>
       </ul>
     </div>
