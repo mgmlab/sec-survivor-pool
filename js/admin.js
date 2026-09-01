@@ -188,6 +188,17 @@ async function overrideGame(n, gameId) {
   await db.ref(`weeks/${n}/games/${gameId}`).update(patch);
 }
 
+async function removeWeekSection(n) {
+  const hasData = !!S.weeks[n];
+  const msg = hasData
+    ? `Remove Week ${n}'s dates/schedule/lock time? Anyone's picks for that week are NOT affected — this only clears admin's own record, and you can re-add it anytime.`
+    : `Remove this Week ${n} section?`;
+  if (!confirm(msg)) return;
+  ui.extraWeeks.delete(n);
+  if (hasData) await db.ref(`weeks/${n}`).remove();
+  render();
+}
+
 async function forceRecomputeLockTime(n) {
   const games = Object.values(S.weeks[n]?.games || {});
   if (!games.length) return;
@@ -422,7 +433,10 @@ function renderWeeksSection() {
     const week = S.weeks[n] || {};
     const games = Object.entries(week.games || {});
     return `<div class="admin-section">
-      <h2>Week ${n} ${n === currentWeek ? '(current)' : ''}</h2>
+      <div class="admin-row" style="justify-content:space-between;">
+        <h2 style="margin:0;">Week ${n} ${n === currentWeek ? '(current)' : ''}</h2>
+        ${n !== currentWeek ? `<button class="btn danger" data-removeweek="${n}">Remove</button>` : ''}
+      </div>
       <div class="admin-row">
         <label>Start <input type="date" id="weekStart-${n}" value="${week.startDate || ''}"></label>
         <label>End <input type="date" id="weekEnd-${n}" value="${week.endDate || ''}"></label>
@@ -475,4 +489,5 @@ function wireAdminEvents() {
     ui.extraWeeks.add(n);
     render();
   });
+  document.querySelectorAll('[data-removeweek]').forEach(b => b.addEventListener('click', () => removeWeekSection(Number(b.dataset.removeweek))));
 }
