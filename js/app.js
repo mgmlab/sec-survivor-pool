@@ -153,7 +153,7 @@ function teamScheduleRows(abbr) {
         date: new Date(g.kickoff),
         opponentAbbr: opp.abbr,
         opponentName: opp.name,
-        opponentSchool: opp.school,
+        opponentSchool: opp.school || opp.name || opp.abbr,
         homeAway: isHome ? 'vs' : '@',
         completed: g.completed,
         result: g.completed ? `${g.away.score}-${g.home.score}` : null,
@@ -169,7 +169,8 @@ function schoolNameFor(abbr) {
   if (!seasonSchedule?.length) return abbr;
   const g = seasonSchedule.find(g => g.home.abbr === abbr || g.away.abbr === abbr);
   if (!g) return abbr;
-  return g.home.abbr === abbr ? g.home.school : g.away.school;
+  const t = g.home.abbr === abbr ? g.home : g.away;
+  return t.school || t.name || abbr;
 }
 
 // Returns { games, lockTime, status } for any week number, even ones the
@@ -324,16 +325,20 @@ function renderPickScreen(participant) {
     week, picks: S.picks, weeks: mergedWeeksFor(), weekNumber: currentWeek, pid: me.participantId, config: S.config, myPick,
   });
 
-  const cards = evaluated.map(t => {
+  function renderCard(t, disabled) {
     let opponentLine = 'BYE';
+    let meta = '';
     if (t.game) {
       const isHome = t.game.home.abbr === t.abbr;
       const opp = isHome ? t.game.away : t.game.home;
       opponentLine = `${isHome ? 'vs' : '@'} ${opp.name}`;
-      if (t.game.completed) opponentLine += ` — Final ${t.game.away.score}-${t.game.home.score}`;
+      if (t.game.completed) {
+        opponentLine += ` — Final ${t.game.away.score}-${t.game.home.score}`;
+      } else {
+        const kickoffLabel = new Date(t.game.kickoff).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+        meta = [kickoffLabel, t.game.network].filter(Boolean).join(' · ');
+      }
     }
-
-    const disabled = t.disabled || (!t.selected && locked);
 
     // The pick action and the schedule link are separate controls (not
     // schedule-link nested inside the pick <button>) because a disabled
@@ -344,11 +349,26 @@ function renderPickScreen(participant) {
               data-team="${t.abbr}" ${disabled ? 'disabled' : ''}>
         <div class="team-name">${t.name}</div>
         <div class="team-opp">${opponentLine}</div>
+        ${meta ? `<div class="team-meta">${meta}</div>` : ''}
         ${t.flag ? `<div class="team-flag">${t.flag}</div>` : ''}
       </button>
       <div class="schedule-link" data-schedule-team="${t.abbr}">Full schedule →</div>
     </div>`;
-  }).join('');
+  }
+
+  // Pickable teams first so you don't have to scan past everything you can't
+  // choose; a locked week has nothing left pickable, so everything falls into
+  // the second group and the divider just quietly doesn't show.
+  const pickable = [];
+  const unpickable = [];
+  for (const t of evaluated) {
+    const disabled = t.disabled || (!t.selected && locked);
+    (disabled ? unpickable : pickable).push(renderCard(t, disabled));
+  }
+
+  const cards = pickable.join('')
+    + (pickable.length && unpickable.length ? '<div class="team-grid-divider">Not eligible this week</div>' : '')
+    + unpickable.join('');
 
   return `
     <div class="week-meta">
@@ -450,14 +470,20 @@ function renderScheduleTab(participant) {
         const opp = isHome ? t.game.away : t.game.home;
         const confClass = t.opponentConf === 'SEC' ? 'conf-sec' : (t.opponentConf ? 'conf-power4' : 'conf-none');
         const resultMark = t.game.completed ? (t.game.winnerAbbr === team.abbr ? ' W' : ' L') : '';
-        const label = `${isHome ? 'vs' : '@'}${opp.school}${resultMark}`;
+        const label = `${isHome ? 'vs' : '@'}${opp.school || opp.name || opp.abbr}${resultMark}`;
 
         if (!canQueue || evalByWeek[wn].locked) {
           return `<td class="${confClass}">${label}</td>`;
         }
-        const cellClass = [confClass, t.selected ? 'queue-selected' : '', t.disabled ? 'queue-disabled' : 'queue-pickable'].filter(Boolean).join(' ');
-        const title = t.disabled && !t.selected ? t.flag : '';
-        return `<td class="${cellClass}" data-queue-pick="${wn}:${team.abbr}" ${title ? `title="${title}"` : ''}>${label}</td>`;
+        // Disabled cells must NOT carry data-queue-pick — a greyed-out cell
+        // that's still clickable would let someone queue an ineligible team
+        // (this exact bug shipped once already: CSS made it look blocked,
+        // but nothing actually stopped the click).
+        if (t.disabled) {
+          return `<td class="${confClass} queue-disabled" title="${t.flag}">${label}</td>`;
+        }
+        const cellClass = `${confClass} ${t.selected ? 'queue-selected' : 'queue-pickable'}`;
+        return `<td class="${cellClass}" data-queue-pick="${wn}:${team.abbr}">${label}</td>`;
       }).join('')}
     </tr>`;
   }).join('');

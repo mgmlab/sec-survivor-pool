@@ -9,6 +9,7 @@
   --accent-2: #c8102e;
   --win: #2e9e5b;
   --lose: #c8102e;
+  --sec-hue: #a78bfa;
   --radius: 10px;
 }
 
@@ -124,10 +125,22 @@ body {
 .team-card.disabled { opacity: 0.4; cursor: not-allowed; }
 .team-name { font-weight: 700; font-size: 0.92rem; }
 .team-opp { font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
+.team-meta { font-size: 0.7rem; color: var(--muted); margin-top: 0.15rem; opacity: 0.8; }
 .team-flag { font-size: 0.7rem; color: var(--accent-2); margin-top: 0.3rem; font-weight: 600; }
 
 .team-card-wrap { display: flex; flex-direction: column; }
 .team-card-wrap .team-card { width: 100%; flex: 1; }
+
+.team-grid-divider {
+  grid-column: 1 / -1;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-top: 1px solid var(--border);
+  padding-top: 0.6rem;
+  margin-top: 0.2rem;
+}
 .schedule-link {
   font-size: 0.7rem;
   color: var(--muted);
@@ -145,7 +158,7 @@ body {
 .schedule-grid-table th:first-child, .schedule-grid-table td:first-child { text-align: left; position: sticky; left: 0; background: var(--bg); }
 .schedule-team-name { cursor: pointer; font-weight: 600; }
 .schedule-team-name:hover { color: var(--accent); }
-.conf-sec { color: var(--accent-2); }
+.conf-sec { color: var(--sec-hue); }
 .conf-power4 { color: var(--win); }
 .conf-none { color: var(--muted); }
 

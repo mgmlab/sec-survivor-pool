@@ -48,6 +48,10 @@ function normalizeEvent(event) {
     else winnerAbbr = 'TIE'; // no modern-era CFB ties, but guard anyway
   }
 
+  const network = Array.isArray(comp.broadcasts) && comp.broadcasts.length
+    ? [...new Set(comp.broadcasts.flatMap(b => b.names || []))].join('/')
+    : null;
+
   return {
     id: event.id,
     kickoff: event.date,
@@ -55,6 +59,7 @@ function normalizeEvent(event) {
     shortName: event.shortName,
     statusName: statusType.name, // STATUS_SCHEDULED | STATUS_IN_PROGRESS | STATUS_FINAL | STATUS_POSTPONED | STATUS_CANCELED
     completed: statusType.completed === true,
+    network, // e.g. "ESPN", "ABC/Disney+" — null if ESPN hasn't published one yet
     home: homeN,
     away: awayN,
     winnerAbbr,

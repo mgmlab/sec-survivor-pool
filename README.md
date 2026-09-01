@@ -93,6 +93,14 @@ static copy — so it can never go stale if the commissioner changes a rule
 mid-season. If you want to change the wording, edit `renderRulesSection()` in
 [`js/app.js`](js/app.js).
 
+## Pick tab layout
+
+Pickable teams are shown first, then a divider ("Not eligible this week"),
+then greyed-out ineligible teams below — you don't have to scan past everyone
+you can't pick to find who you can. Each card also shows kickoff time and TV
+network (ESPN's `broadcasts` field, `data-source/espn.js`) when ESPN has
+published one; some games don't get a network assigned until close to game day.
+
 ## Full schedule / pick queue
 
 A fourth tab ("Schedule") shows every SEC team's full-season schedule at once
