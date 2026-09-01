@@ -15,12 +15,25 @@
 
 * { box-sizing: border-box; }
 
+html {
+  /* Scroll anchoring auto-shifts scroll position when content ABOVE the
+     viewport changes size — exactly what happens when the tiny "Loading…"
+     placeholder gets replaced by the full header+rules+tabs+content in one
+     innerHTML swap. Reported specifically on iPhone Chrome as opening
+     already scrolled past the header down to the tab nav, while a manual
+     refresh (no placeholder-to-content swap mid-session to compensate for)
+     started at the top — the signature of anchoring, not a caching/history
+     issue. Disabling it site-wide since nothing here benefits from it. */
+  overflow-anchor: none;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
+  overflow-anchor: none;
 }
 
 #app {
