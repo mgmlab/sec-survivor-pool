@@ -293,8 +293,17 @@ function render() {
 async function logout() {
   if (!confirm("Log out of admin? You'll need the passphrase again next time.")) return;
   localStorage.removeItem('ssp_admin_pass');
+  me.admin = false;
+  render(); // immediate feedback — the fresh sign-in below can take a moment
+  // Deliberately not a page reload: signOut() immediately followed by
+  // location.reload() hit a real race with Firebase's auth reinitializing
+  // on the fresh page load (reproduced live — it hung on "Loading…"
+  // indefinitely, even though every underlying read/auth call succeeded
+  // when tried manually seconds later). Signing back in within the same
+  // already-running page sidesteps it entirely and gets the same result:
+  // a fresh anonymous identity that was never granted admin.
   await firebase.auth().signOut();
-  location.reload();
+  await firebase.auth().signInAnonymously();
 }
 
 function renderConfigSection() {

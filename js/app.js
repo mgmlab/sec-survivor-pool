@@ -499,7 +499,7 @@ function renderScheduleTab(participant) {
         const opp = isHome ? t.game.away : t.game.home;
         const confClass = t.opponentConf === 'SEC' ? 'conf-sec' : (t.opponentConf ? 'conf-power4' : 'conf-none');
         const resultMark = t.game.completed ? (t.game.winnerAbbr === team.abbr ? ' W' : ' L') : '';
-        const label = `${isHome ? 'vs' : '@'}${opp.school || opp.name || opp.abbr}${resultMark}`;
+        const label = `${isHome ? 'vs' : '@'} ${opp.school || opp.name || opp.abbr}${resultMark}`;
 
         if (!canQueue || evalByWeek[wn].locked) {
           return `<td class="${confClass}">${label}</td>`;
