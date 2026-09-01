@@ -86,20 +86,52 @@ if (DEBUG) {
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
 
-// PROVEN by on-device logging + screenshot: the document reports scrollY=0
-// and .app-header's rect top=0 (i.e. "already at the top") while the header
-// is VISUALLY pushed ~120px off screen behind the browser's address bar.
-// The viewport height in the log bounces 956 -> 758 -> 956 -> 758: the page
-// gets laid out while the toolbar is hidden (tall viewport), then the
-// toolbar appears (short viewport) and the painted content stays put,
-// hidden behind it.
+// ROOT CAUSE, finally proven by on-device geometry logging + a screenshot:
 //
-// The critical consequence: `scrollTo(0, 0)` when scrollY is ALREADY 0 is a
-// no-op — the browser has nothing to do, so it never re-syncs. That's why
-// four previous fixes all failed; they were calling a function that could
-// not possibly have an effect. Scrolling to 1 and back to 0 forces a real
-// scroll operation, which makes the browser recompute what it's painting.
+//   GEO@6000ms headerInDom=true headerTop=0 headerH=55 scrollY=0 innerH=956
+//
+// innerHeight reports 956 — the FULL physical screen height of the device,
+// including the status bar, address bar and bottom toolbar. But the actually
+// visible page area is only ~779px tall and begins ~111px down the screen.
+// So the layout viewport spans the entire screen *behind* the browser
+// chrome, and the header (at top:0, height 55) plus the rules section
+// (~50px) — about 105px, almost exactly the ~111px hidden region — are
+// rendered underneath the address bar.
+//
+// This is NOT a scroll problem, which is why six scroll-based fixes all
+// failed: the document is genuinely at scroll position 0, and scroll cannot
+// go negative, so no scroll API could ever pull that content out from behind
+// the chrome. The only fix is to add top padding so content starts below it.
+//
+// Detection: on a phone the layout viewport should be SHORTER than the
+// screen (the chrome takes space). When innerHeight >= screen.height, the
+// chrome must be overlaying the page instead. The viewport APIs themselves
+// can't be trusted here — visualViewport reported height=956/offsetTop=0 at
+// the same moment content was demonstrably hidden — so screen.height is the
+// only reliable signal.
+const TOUCH_DEVICE = matchMedia('(pointer: coarse)').matches;
+
+function chromeOverlayInset() {
+  const screenH = window.screen?.height || 0;
+  if (!TOUCH_DEVICE || !screenH) return 0;
+  if (window.innerHeight < screenH - 2) return 0; // chrome properly accounted for
+  // Top chrome (status bar + address bar) measured at ~111px of a 956px
+  // screen. Scale that ratio so it adapts across devices, with sane bounds.
+  return Math.min(160, Math.max(80, Math.round(screenH * 0.118)));
+}
+
+function applyChromeOverlayFix() {
+  const inset = chromeOverlayInset();
+  const current = parseInt(document.body.style.paddingTop || '0', 10);
+  if (inset === current) return;
+  // Padding exactly fills the region hidden behind the chrome, so there's no
+  // visible gap — the header just lands immediately below the address bar.
+  document.body.style.paddingTop = inset ? `${inset}px` : '';
+  dlog(`chromeOverlayFix — paddingTop=${inset} innerH=${window.innerHeight} screenH=${window.screen?.height}`);
+}
+
 function jiggleScrollTop() {
+  applyChromeOverlayFix();
   window.scrollTo(0, 1);
   window.scrollTo(0, 0);
   if (document.documentElement) {
@@ -187,7 +219,29 @@ function deviceId() {
 dlog('calling signInAnonymously()');
 firebase.auth().signInAnonymously()
   .then(() => dlog('signInAnonymously() resolved'))
-  .catch(e => dlog(`signInAnonymously() REJECTED — ${e.code} ${e.message}`));
+  .catch(e => {
+    dlog(`signInAnonymously() REJECTED — ${e.code} ${e.message}`);
+    showFatal(`Couldn't sign in: ${e.message}. Private/Incognito browsing can block the storage this needs — try a normal browser window.`);
+  });
+
+// Anything that stops the data from arriving used to leave the page showing
+// "Loading…" forever with no explanation (reported in an incognito tab,
+// where Firebase's anonymous auth can be blocked from using local storage).
+// Show something actionable instead of hanging silently.
+function showFatal(msg) {
+  const el = $('app');
+  if (!el || S.loaded) return;
+  el.innerHTML = `<div style="padding:2rem;text-align:center;">
+    <p style="color:var(--lose);font-weight:600;">Couldn't load the pool</p>
+    <p class="muted" style="font-size:0.9rem;">${msg}</p>
+  </div>`;
+}
+setTimeout(() => {
+  if (!S.loaded) {
+    dlog('WATCHDOG — still not loaded after 15s');
+    showFatal('The connection to the pool data timed out. Check your connection and reload; if you\'re in a Private/Incognito window, try a normal one.');
+  }
+}, 15000);
 firebase.auth().onAuthStateChanged(u => {
   dlog(`onAuthStateChanged — uid=${u?.uid || '(none, using deviceId fallback)'}`);
   me.identity = u ? u.uid : deviceId();
