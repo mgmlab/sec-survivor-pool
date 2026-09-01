@@ -1,7 +1,7 @@
 import { SEC_TEAMS } from '../data-source/teams.js';
 import { conferenceOf } from '../data-source/power4-teams.js';
 import { fetchGames } from '../data-source/provider.js';
-import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked } from './eligibility.js';
+import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js';
 
 // ---- on-device diagnostics ----
 // Three fix attempts guessed at plausible browser mechanisms (scroll
@@ -460,7 +460,7 @@ function weekDataFor(n) {
   const games = seasonSchedule.filter(g => weekNumberFor(g.kickoff, startMs) === n);
   if (!games.length) return null;
   const gamesById = Object.fromEntries(games.map(g => [g.id, g]));
-  const lockTime = Math.min(...games.map(g => new Date(g.kickoff).getTime()));
+  const lockTime = computeLockTime(games, S.config);
   return { games: gamesById, lockTime, status: 'upcoming' };
 }
 
@@ -590,7 +590,7 @@ function renderRulesSection() {
         <li>Each team can be picked up to <strong>${maxTeamUses}</strong> time${maxTeamUses === 1 ? '' : 's'} all season.</li>
         <li>You can play against the same SEC opponent up to <strong>${maxSecOpponentPicks}</strong> time${maxSecOpponentPicks === 1 ? '' : 's'} all season — no cap on how many <em>different</em> SEC opponents you face, just on repeating the same one.</li>
         <li>Your team's opponent must belong to one of: <strong>${enabledConfs.join(', ') || 'none currently enabled'}</strong>.</li>
-        <li>Picks lock at kickoff of the first SEC game each week — you can't change a pick after that.</li>
+        <li>Picks lock at kickoff of the first <em>pickable</em> game each week — games against ineligible opponents don't start the clock. You can't change a pick after that.</li>
         <li>You can plan ahead: the <strong>Schedule</strong> tab doubles as a pick queue, so you can lock in picks for any future week anytime, not just the current one. Change your mind anytime before that week locks, from either the Schedule tab or the Pick tab.</li>
         <li>${noPickText}</li>
       </ul>

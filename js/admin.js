@@ -1,7 +1,7 @@
 import { fetchGames } from '../data-source/provider.js';
 import { computeEliminations } from './elimination.js';
 import { ALL_CONFERENCES } from '../data-source/power4-teams.js';
-import { RULE_DEFAULTS, isLocked } from './eligibility.js';
+import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js';
 import { autoPicksForWeek } from './autopick.js';
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
@@ -200,8 +200,7 @@ async function syncWeek(n) {
 
     const updates = { [`weeks/${n}/games`]: gamesById };
     if (!week.lockTime && games.length) {
-      const earliest = Math.min(...games.map(g => new Date(g.kickoff).getTime()));
-      updates[`weeks/${n}/lockTime`] = earliest;
+      updates[`weeks/${n}/lockTime`] = computeLockTime(games, S.config);
     }
     const allDone = games.length > 0 && games.every(g => g.completed);
     updates[`weeks/${n}/status`] = allDone ? 'final' : (week.lockTime ? 'locked' : 'upcoming');
@@ -243,8 +242,8 @@ async function removeWeekSection(n) {
 async function forceRecomputeLockTime(n) {
   const games = Object.values(S.weeks[n]?.games || {});
   if (!games.length) return;
-  const earliest = Math.min(...games.map(g => new Date(g.kickoff).getTime()));
-  if (!confirm(`Reset lock time to ${new Date(earliest).toLocaleString()}?`)) return;
+  const earliest = computeLockTime(games, S.config);
+  if (!confirm(`Reset lock time to ${new Date(earliest).toLocaleString()}?\n\nThat's the first kickoff among games that are actually pickable this week — games against ineligible opponents are ignored.`)) return;
   await db.ref(`weeks/${n}/lockTime`).set(earliest);
 }
 

@@ -2,7 +2,7 @@
 // screen's grey-out UI (js/app.js), the admin auto-pick step (js/admin.js),
 // and the cron script's auto-pick step (scripts/fetch-results.mjs), so all
 // three can never disagree about which teams are legal to pick.
-import { SEC_TEAMS } from '../data-source/teams.js';
+import { SEC_TEAMS, isSecTeam } from '../data-source/teams.js';
 import { conferenceOf, ALL_CONFERENCES } from '../data-source/power4-teams.js';
 
 export const RULE_DEFAULTS = {
@@ -13,6 +13,33 @@ export const RULE_DEFAULTS = {
 
 export function isLocked(week) {
   return !!(week?.lockTime && Date.now() > week.lockTime);
+}
+
+/** True if anyone could legally pick a team in this game (opponent is in an eligible conference). */
+export function isGameEligible(game, config) {
+  const eligibleConferences = config?.eligibleConferences || RULE_DEFAULTS.eligibleConferences;
+  for (const [side, other] of [[game.home, game.away], [game.away, game.home]]) {
+    if (!isSecTeam(side.abbr)) continue;
+    const conf = conferenceOf(other.abbr);
+    if (conf && eligibleConferences[conf]) return true;
+  }
+  return false;
+}
+
+// Lock at the first kickoff among games someone could actually PICK, not the
+// first SEC game of any kind. A week opening with, say, Missouri vs an FCS
+// team would otherwise lock everyone out Thursday night over a game nobody
+// was allowed to pick — the real deadline is the first eligible matchup.
+// Deliberately global: only the conference rule is applied here, not the
+// per-person ones (team already used, SEC-opponent cap), so everyone in the
+// pool shares one deadline instead of each having a personal one.
+// Falls back to all games if a week somehow has no eligible matchup at all.
+export function computeLockTime(games, config) {
+  const list = Object.values(games || {});
+  if (!list.length) return null;
+  const eligible = list.filter(g => isGameEligible(g, config));
+  const pool = eligible.length ? eligible : list;
+  return Math.min(...pool.map(g => new Date(g.kickoff).getTime()));
 }
 
 export function gameForTeam(week, abbr) {

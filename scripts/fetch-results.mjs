@@ -7,7 +7,7 @@
 import admin from 'firebase-admin';
 import { fetchGames } from '../data-source/provider.js';
 import { computeEliminations } from '../js/elimination.js';
-import { isLocked } from '../js/eligibility.js';
+import { isLocked, computeLockTime } from '../js/eligibility.js';
 import { autoPicksForWeek } from '../js/autopick.js';
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -39,7 +39,7 @@ async function main() {
 
   const updates = { [`weeks/${currentWeek}/games`]: gamesById };
   if (!week.lockTime && games.length) {
-    updates[`weeks/${currentWeek}/lockTime`] = Math.min(...games.map(g => new Date(g.kickoff).getTime()));
+    updates[`weeks/${currentWeek}/lockTime`] = computeLockTime(games, config);
   }
   const allDone = games.length > 0 && games.every(g => g.completed);
   updates[`weeks/${currentWeek}/status`] = allDone ? 'final' : (week.lockTime ? 'locked' : 'upcoming');
