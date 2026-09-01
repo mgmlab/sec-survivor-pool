@@ -6,14 +6,23 @@ import { autoPicksForWeek } from './autopick.js';
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
-function ensureScrolledToTop(screenKey) {
-  if (screenKey === lastScreenKey) return;
-  lastScreenKey = screenKey;
-  // Not rAF — confirmed it never fires at all for a hidden/background tab.
+
+function forceScrollTop() {
   window.scrollTo(0, 0);
   setTimeout(() => window.scrollTo(0, 0), 0);
   setTimeout(() => window.scrollTo(0, 0), 100);
   setTimeout(() => window.scrollTo(0, 0), 400);
+}
+
+// See js/app.js for why this is on `pageshow`, not just render() calls:
+// mobile Safari's back-forward cache repaints a frozen old-scroll snapshot
+// without re-running any JS on this page at all.
+window.addEventListener('pageshow', forceScrollTop);
+
+function ensureScrolledToTop(screenKey) {
+  if (screenKey === lastScreenKey) return;
+  lastScreenKey = screenKey;
+  forceScrollTop();
 }
 
 firebase.initializeApp(firebaseConfig);

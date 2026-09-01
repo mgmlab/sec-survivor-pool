@@ -13,6 +13,24 @@ import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked } from './el
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
 
+function forceScrollTop() {
+  window.scrollTo(0, 0);
+  setTimeout(() => window.scrollTo(0, 0), 0);
+  setTimeout(() => window.scrollTo(0, 0), 100);
+  setTimeout(() => window.scrollTo(0, 0), 400);
+}
+
+// "Close the tab, reopen the link" restoring an old scroll position is very
+// likely mobile Safari's back-forward cache (bfcache): it repaints a frozen
+// snapshot of the page exactly as it was when the tab closed — including
+// scroll position — WITHOUT re-running any of this file's JS. That means
+// nothing tied to render()/Firebase callbacks can ever catch it, no matter
+// how the render-triggered scroll logic below is built. `pageshow` is the
+// event made specifically for this: it fires on a bfcache restore (and on
+// normal loads too), unlike load/DOMContentLoaded which don't fire again
+// for a bfcache restore.
+window.addEventListener('pageshow', forceScrollTop);
+
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
@@ -262,17 +280,7 @@ function render() {
 function ensureScrolledToTop(screenKey) {
   if (screenKey === lastScreenKey) return;
   lastScreenKey = screenKey;
-  // NOT requestAnimationFrame — confirmed live that rAF never fires at all
-  // while a tab isn't the visible/foreground one, which is plausibly exactly
-  // when this screen transition happens (e.g. right as a reopened tab is
-  // still becoming active). scrollTo runs immediately for the normal case,
-  // plus a few setTimeout follow-ups (setTimeout still fires for background
-  // tabs, just possibly delayed) to win against layout/mobile-chrome
-  // adjustments that land a moment after first paint.
-  window.scrollTo(0, 0);
-  setTimeout(() => window.scrollTo(0, 0), 0);
-  setTimeout(() => window.scrollTo(0, 0), 100);
-  setTimeout(() => window.scrollTo(0, 0), 400);
+  forceScrollTop();
 }
 
 function wireRulesSection() {
