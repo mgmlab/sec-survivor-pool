@@ -2,6 +2,15 @@ import { SEC_TEAMS } from '../data-source/teams.js';
 import { conferenceOf } from '../data-source/power4-teams.js';
 import { fetchGames } from '../data-source/provider.js';
 import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked } from './eligibility.js';
+import { formatCentral, formatCentralDate } from './format.js';
+
+// Mobile browsers sometimes restore a previous scroll position (or drift
+// from one) when reopening a tab for a URL that's been visited before —
+// reported as the page opening "slightly scrolled down" instead of at the
+// top. Disable the browser's own restoration and force it explicitly once
+// the first real content is on screen.
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+let scrolledToTop = false;
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
@@ -246,6 +255,15 @@ function render() {
   wireQueuePicks();
   wireRulesSection();
   wireHeader();
+  ensureScrolledToTop();
+}
+
+function ensureScrolledToTop() {
+  if (scrolledToTop) return;
+  scrolledToTop = true;
+  // Runs after the DOM update so it wins against any browser-driven
+  // restoration that happens around the same time as first paint.
+  requestAnimationFrame(() => window.scrollTo(0, 0));
 }
 
 function wireRulesSection() {
@@ -327,6 +345,7 @@ function renderClaimScreen() {
     btn.addEventListener('click', () => claimParticipant(btn.dataset.pid));
   });
   wireRulesSection();
+  ensureScrolledToTop();
 }
 
 function renderPickScreen(participant) {
@@ -347,7 +366,7 @@ function renderPickScreen(participant) {
   }
 
   const lockLabel = week.lockTime
-    ? new Date(week.lockTime).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    ? formatCentral(week.lockTime, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' CT'
     : 'TBD';
 
   const evaluated = evaluateTeamsForWeek({
@@ -364,7 +383,7 @@ function renderPickScreen(participant) {
       if (t.game.completed) {
         opponentLine += ` — Final ${t.game.away.score}-${t.game.home.score}`;
       } else {
-        const kickoffLabel = new Date(t.game.kickoff).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+        const kickoffLabel = formatCentral(t.game.kickoff, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) + ' CT';
         meta = [kickoffLabel, t.game.network].filter(Boolean).join(' · ');
       }
     }
@@ -528,7 +547,7 @@ function renderScheduleTab(participant) {
       ${canQueue ? ' Tap a cell in an unlocked week to queue your pick for that week — change your mind anytime before it locks, here or on the Pick tab.' : ''}
     </p>
     <div class="history-scroll"><table class="schedule-grid-table">
-      <thead><tr><th>Team</th>${weekNums.map(wn => `<th>Wk ${wn}<br><span class="muted">${weekDateLabel[wn].toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })}</span></th>`).join('')}</tr></thead>
+      <thead><tr><th>Team</th>${weekNums.map(wn => `<th>Wk ${wn}<br><span class="muted">${formatCentralDate(weekDateLabel[wn], { month: 'numeric', day: 'numeric' })}</span></th>`).join('')}</tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
   `;
@@ -551,7 +570,7 @@ function renderScheduleModal() {
           <thead><tr><th>Wk</th><th>Date</th><th>Opponent</th><th>Result</th></tr></thead>
           <tbody>${rows.map(r => `<tr>
             <td>${r.weekNum}</td>
-            <td>${r.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</td>
+            <td>${formatCentralDate(r.date, { month: 'short', day: 'numeric' })}</td>
             <td>${r.homeAway} ${r.opponentSchool}${!r.opponentConf ? ' <span class="muted">(not P4)</span>' : (r.opponentConf === 'SEC' ? ' <span class="muted">(SEC)</span>' : '')}</td>
             <td>${r.completed ? `${r.won ? 'W' : 'L'} ${r.result}` : '—'}</td>
           </tr>`).join('')}</tbody>

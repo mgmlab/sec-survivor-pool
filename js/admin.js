@@ -3,6 +3,15 @@ import { computeEliminations } from './elimination.js';
 import { ALL_CONFERENCES } from '../data-source/power4-teams.js';
 import { RULE_DEFAULTS, isLocked } from './eligibility.js';
 import { autoPicksForWeek } from './autopick.js';
+import { formatCentral } from './format.js';
+
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+let scrolledToTop = false;
+function ensureScrolledToTop() {
+  if (scrolledToTop) return;
+  scrolledToTop = true;
+  requestAnimationFrame(() => window.scrollTo(0, 0));
+}
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
@@ -177,7 +186,7 @@ async function forceRecomputeLockTime(n) {
   const games = Object.values(S.weeks[n]?.games || {});
   if (!games.length) return;
   const earliest = Math.min(...games.map(g => new Date(g.kickoff).getTime()));
-  if (!confirm(`Reset lock time to ${new Date(earliest).toLocaleString()}?`)) return;
+  if (!confirm(`Reset lock time to ${formatCentral(earliest)} CT?`)) return;
   await db.ref(`weeks/${n}/lockTime`).set(earliest);
 }
 
@@ -268,6 +277,7 @@ function render() {
       </div>`;
     $('unlockBtn').addEventListener('click', unlock);
     $('passInput').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+    ensureScrolledToTop();
     return;
   }
 
@@ -288,6 +298,7 @@ function render() {
   wireAdminEvents();
   $('meNameBtn')?.addEventListener('click', () => $('meMenu')?.classList.toggle('hidden'));
   $('logoutBtn')?.addEventListener('click', logout);
+  ensureScrolledToTop();
 }
 
 async function logout() {
@@ -340,7 +351,7 @@ function renderConfigSection() {
       times per season (no cap on different opponents)</label>
     </div>
     <div class="admin-row">
-      <span>Eligible opponent conferences:</span>
+      <span style="width:100%;">Eligible opponent conferences:</span>
       ${ALL_CONFERENCES.map(c => `
         <label style="display:inline-flex;align-items:center;gap:0.25rem;">
           <input type="checkbox" id="conf-${confSlug(c)}" ${eligibleConferences[c] ? 'checked' : ''}> ${c}
@@ -414,7 +425,7 @@ function renderWeeksSection() {
         <button class="btn" id="syncBtn-${n}" data-sync="${n}">Sync scores</button>
         <button class="btn secondary" data-runelim="${n}">Run eliminations</button>
         ${week.lockTime ? `<button class="btn secondary" data-relock="${n}">Reset lock time</button>` : ''}
-        <span class="muted">${week.lockTime ? 'Locks ' + new Date(week.lockTime).toLocaleString() : 'Lock time not set yet'}</span>
+        <span class="muted">${week.lockTime ? 'Locks ' + formatCentral(week.lockTime) + ' CT' : 'Lock time not set yet'}</span>
       </div>
       ${games.length ? games.map(([gid, g]) => `
         <div class="game-row">
