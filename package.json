@@ -1,0 +1,11 @@
+{
+  "name": "sec-survivor-pool",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fetch-results": "node scripts/fetch-results.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0"
+  }
+}

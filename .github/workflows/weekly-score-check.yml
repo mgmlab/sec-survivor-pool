@@ -1,0 +1,23 @@
+name: Score check
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Every 3 hours, Thu-Mon (UTC), to catch results shortly after games finish.
+    # GitHub Actions schedules run on a best-effort basis and can be a few
+    # minutes late during high load — that's fine here, this isn't time-critical.
+    - cron: '15 0,3,6,9,12,15,18,21 * * 4,5,6,0,1'
+
+jobs:
+  check-scores:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --omit=dev
+      - run: npm run fetch-results
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_DATABASE_URL: ${{ secrets.FIREBASE_DATABASE_URL }}

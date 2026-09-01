@@ -1,0 +1,45 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "participants": {
+      ".read": "auth != null",
+      "$pid": {
+        ".write": "auth != null && (root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val() || (!data.child('claimedBy').exists() && newData.child('claimedBy').val() === auth.uid) || data.child('claimedBy').val() === auth.uid)"
+      }
+    },
+
+    "weeks": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val()"
+    },
+
+    "picks": {
+      ".read": "auth != null",
+      "$week": {
+        "$pid": {
+          ".write": "auth != null && (root.child('participants').child($pid).child('claimedBy').val() === auth.uid || root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val()) && (!root.child('weeks').child($week).child('lockTime').exists() || now < root.child('weeks').child($week).child('lockTime').val())"
+        }
+      }
+    },
+
+    "config": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val()"
+    },
+
+    "admin": {
+      "passHash": {
+        ".read": false,
+        ".write": "auth != null && root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val()"
+      },
+      "authorized": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid && newData.val() === root.child('admin/passHash').val()"
+        }
+      }
+    }
+  }
+}
