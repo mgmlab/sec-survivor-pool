@@ -122,7 +122,13 @@ body {
   font-family: inherit;
 }
 .team-card.selected { border-color: var(--accent); background: #2b2411; box-shadow: 0 0 0 1px var(--accent); }
-.team-card.disabled { opacity: 0.4; cursor: not-allowed; }
+/* Flat muted colors, not opacity — dimming the whole card crushed everything
+   except the bold team name (reported almost unreadable). The supporting
+   info (opponent, kickoff, flag reason) is the part that explains WHY a
+   card is disabled, so it needs to stay legible, not the least visible thing
+   on it. */
+.team-card.disabled { cursor: not-allowed; background: var(--panel-2); }
+.team-card.disabled .team-name { color: var(--muted); font-weight: 600; }
 .team-name { font-weight: 700; font-size: 0.92rem; }
 .team-opp { font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
 .team-meta { font-size: 0.7rem; color: var(--muted); margin-top: 0.15rem; opacity: 0.8; }
