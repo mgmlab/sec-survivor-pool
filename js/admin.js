@@ -3,7 +3,6 @@ import { computeEliminations } from './elimination.js';
 import { ALL_CONFERENCES } from '../data-source/power4-teams.js';
 import { RULE_DEFAULTS, isLocked } from './eligibility.js';
 import { autoPicksForWeek } from './autopick.js';
-import { formatCentral } from './format.js';
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let scrolledToTop = false;
@@ -186,7 +185,7 @@ async function forceRecomputeLockTime(n) {
   const games = Object.values(S.weeks[n]?.games || {});
   if (!games.length) return;
   const earliest = Math.min(...games.map(g => new Date(g.kickoff).getTime()));
-  if (!confirm(`Reset lock time to ${formatCentral(earliest)} CT?`)) return;
+  if (!confirm(`Reset lock time to ${new Date(earliest).toLocaleString()}?`)) return;
   await db.ref(`weeks/${n}/lockTime`).set(earliest);
 }
 
@@ -425,7 +424,7 @@ function renderWeeksSection() {
         <button class="btn" id="syncBtn-${n}" data-sync="${n}">Sync scores</button>
         <button class="btn secondary" data-runelim="${n}">Run eliminations</button>
         ${week.lockTime ? `<button class="btn secondary" data-relock="${n}">Reset lock time</button>` : ''}
-        <span class="muted">${week.lockTime ? 'Locks ' + formatCentral(week.lockTime) + ' CT' : 'Lock time not set yet'}</span>
+        <span class="muted">${week.lockTime ? 'Locks ' + new Date(week.lockTime).toLocaleString() : 'Lock time not set yet'}</span>
       </div>
       ${games.length ? games.map(([gid, g]) => `
         <div class="game-row">
