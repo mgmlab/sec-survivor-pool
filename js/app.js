@@ -389,6 +389,12 @@ function renderHistory() {
       ${participants.map(([pid, p]) => `<tr>
         <td>${p.name}</td>
         ${weekNumbers.map(w => {
+          // Other players' picks stay hidden until that week locks, so nobody
+          // can see (and counter) someone else's pick before it's final. Your
+          // own picks are always visible to you.
+          if (pid !== me.participantId && !isLocked(S.weeks[w])) {
+            return '<td class="muted">Hidden</td>';
+          }
           const pick = S.picks?.[w]?.[pid];
           if (!pick) return '<td class="muted">—</td>';
           const game = gameForTeam(S.weeks[w], pick.team);
