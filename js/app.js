@@ -18,8 +18,11 @@ const debugLog = [];
 function dlog(msg) {
   if (!DEBUG) return;
   const t = (performance.now() / 1000).toFixed(2);
-  debugLog.push(`${t}s  ${msg}`);
-  if (debugLog.length > 200) debugLog.shift();
+  // NEWEST FIRST — with oldest-first, every screenshot so far captured only
+  // the first ~0.5s and cut off the post-render entries that actually
+  // matter. That was a flaw in the tooling, not the data.
+  debugLog.unshift(`${t}s  ${msg}`);
+  if (debugLog.length > 120) debugLog.pop();
   renderDebugPanel();
 }
 function renderDebugPanel() {
@@ -28,7 +31,7 @@ function renderDebugPanel() {
   if (!el) {
     el = document.createElement('div');
     el.id = 'debugPanel';
-    el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:45vh;overflow:auto;background:rgba(0,0,0,0.92);color:#0f0;font-size:10px;font-family:monospace;padding:6px;z-index:999999;white-space:pre-wrap;border-top:2px solid #0f0;';
+    el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:55vh;overflow:auto;background:rgba(0,0,0,0.95);color:#0f0;font-size:10px;font-family:monospace;padding:6px;z-index:999999;white-space:pre-wrap;border-top:2px solid #0f0;';
     document.documentElement.appendChild(el);
   }
   el.textContent = debugLog.join('\n');
@@ -55,15 +58,22 @@ if (DEBUG) {
     dlog('window.visualViewport not supported on this browser');
   }
 
-  // Also capture actual layout geometry — if the header/rules are genuinely
-  // present in the DOM with normal position but something ABOVE them is
-  // taking up unexpected height (rather than anything scroll-related),
-  // that'd show up here instead.
-  setTimeout(() => {
-    const header = document.querySelector('.app-header');
-    const rect = header?.getBoundingClientRect();
-    dlog(`+1s geometry check — header top=${rect?.top} bodyScrollHeight=${document.body.scrollHeight} innerHeight=${window.innerHeight} visualViewportHeight=${window.visualViewport?.height}`);
-  }, 1000);
+  // Continuous geometry sampling. Every previous one-shot check happened to
+  // fire BEFORE the Firebase data arrived and the real content rendered
+  // (~1.5s), so it always reported header top=undefined / a placeholder-only
+  // page. This samples well past that point to capture the state the user
+  // actually sees, and is the measurement that distinguishes the remaining
+  // possibilities:
+  //   headerTop NEGATIVE  -> document really is scrolled (scrollY should agree)
+  //   headerTop 0, hidden -> painted behind browser chrome (a paint/viewport
+  //                          issue no scroll API can fix)
+  //   header MISSING      -> it's not in the DOM at all; not a scroll bug
+  [1500, 2500, 4000, 6000].forEach(ms => setTimeout(() => {
+    const h = document.querySelector('.app-header');
+    const r = h?.getBoundingClientRect();
+    const vv = window.visualViewport;
+    dlog(`GEO@${ms}ms headerInDom=${!!h} headerTop=${r ? Math.round(r.top) : 'n/a'} headerH=${r ? Math.round(r.height) : 'n/a'} scrollY=${window.scrollY} docScrollTop=${document.documentElement.scrollTop} innerH=${window.innerHeight} vvH=${vv?.height} vvOffTop=${vv?.offsetTop} vvPageTop=${vv?.pageTop}`);
+  }, ms));
 }
 
 // Mobile browsers sometimes restore a previous scroll position (or drift
