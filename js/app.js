@@ -331,7 +331,7 @@ function renderPickScreen(participant) {
     if (t.game) {
       const isHome = t.game.home.abbr === t.abbr;
       const opp = isHome ? t.game.away : t.game.home;
-      opponentLine = `${isHome ? 'vs' : '@'} ${opp.name}`;
+      opponentLine = `${isHome ? 'vs' : '@'} ${opp.school || opp.name || opp.abbr}`;
       if (t.game.completed) {
         opponentLine += ` — Final ${t.game.away.score}-${t.game.home.score}`;
       } else {
