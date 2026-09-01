@@ -5,11 +5,15 @@ import { RULE_DEFAULTS, isLocked } from './eligibility.js';
 import { autoPicksForWeek } from './autopick.js';
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-let scrolledToTop = false;
-function ensureScrolledToTop() {
-  if (scrolledToTop) return;
-  scrolledToTop = true;
-  requestAnimationFrame(() => window.scrollTo(0, 0));
+let lastScreenKey = undefined;
+function ensureScrolledToTop(screenKey) {
+  if (screenKey === lastScreenKey) return;
+  lastScreenKey = screenKey;
+  // Not rAF — confirmed it never fires at all for a hidden/background tab.
+  window.scrollTo(0, 0);
+  setTimeout(() => window.scrollTo(0, 0), 0);
+  setTimeout(() => window.scrollTo(0, 0), 100);
+  setTimeout(() => window.scrollTo(0, 0), 400);
 }
 
 firebase.initializeApp(firebaseConfig);
@@ -294,7 +298,7 @@ function render() {
       </div>`;
     $('unlockBtn').addEventListener('click', unlock);
     $('passInput').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
-    ensureScrolledToTop();
+    ensureScrolledToTop('locked');
     return;
   }
 
@@ -315,7 +319,7 @@ function render() {
   wireAdminEvents();
   $('meNameBtn')?.addEventListener('click', () => $('meMenu')?.classList.toggle('hidden'));
   $('logoutBtn')?.addEventListener('click', logout);
-  ensureScrolledToTop();
+  ensureScrolledToTop('unlocked');
 }
 
 async function logout() {

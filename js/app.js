@@ -4,12 +4,14 @@ import { fetchGames } from '../data-source/provider.js';
 import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked } from './eligibility.js';
 
 // Mobile browsers sometimes restore a previous scroll position (or drift
-// from one) when reopening a tab for a URL that's been visited before —
-// reported as the page opening "slightly scrolled down" instead of at the
-// top. Disable the browser's own restoration and force it explicitly once
-// the first real content is on screen.
+// from one) when reopening a tab, or when the page's content height jumps
+// (e.g. the short claim screen -> the much taller Pick screen right after
+// claiming). Disable the browser's own restoration and force scroll-to-top
+// on every genuine screen change — tracked by "which screen" (claim vs a
+// specific participant), not just once on first paint, since the first fix
+// only caught the very first render and missed the claim -> Pick transition.
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-let scrolledToTop = false;
+let lastScreenKey = undefined;
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
@@ -254,15 +256,23 @@ function render() {
   wireQueuePicks();
   wireRulesSection();
   wireHeader();
-  ensureScrolledToTop();
+  ensureScrolledToTop(me.participantId);
 }
 
-function ensureScrolledToTop() {
-  if (scrolledToTop) return;
-  scrolledToTop = true;
-  // Runs after the DOM update so it wins against any browser-driven
-  // restoration that happens around the same time as first paint.
-  requestAnimationFrame(() => window.scrollTo(0, 0));
+function ensureScrolledToTop(screenKey) {
+  if (screenKey === lastScreenKey) return;
+  lastScreenKey = screenKey;
+  // NOT requestAnimationFrame — confirmed live that rAF never fires at all
+  // while a tab isn't the visible/foreground one, which is plausibly exactly
+  // when this screen transition happens (e.g. right as a reopened tab is
+  // still becoming active). scrollTo runs immediately for the normal case,
+  // plus a few setTimeout follow-ups (setTimeout still fires for background
+  // tabs, just possibly delayed) to win against layout/mobile-chrome
+  // adjustments that land a moment after first paint.
+  window.scrollTo(0, 0);
+  setTimeout(() => window.scrollTo(0, 0), 0);
+  setTimeout(() => window.scrollTo(0, 0), 100);
+  setTimeout(() => window.scrollTo(0, 0), 400);
 }
 
 function wireRulesSection() {
@@ -345,7 +355,7 @@ function renderClaimScreen() {
     btn.addEventListener('click', () => claimParticipant(btn.dataset.pid));
   });
   wireRulesSection();
-  ensureScrolledToTop();
+  ensureScrolledToTop('claim-screen');
 }
 
 function renderPickScreen(participant) {
