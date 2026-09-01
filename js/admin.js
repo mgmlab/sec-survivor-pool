@@ -149,8 +149,12 @@ async function addParticipant() {
   $('newParticipantName').value = '';
 }
 
+// Clears the seat AND its password, so the next person to tap that name sets
+// a fresh one. This is the only recovery path when someone forgets theirs —
+// there's no email on file to reset against.
 async function unclaimParticipant(pid) {
-  if (!confirm('Unclaim this seat? Whoever claimed it will need to re-claim.')) return;
+  if (!confirm(`Reset ${S.participants[pid]?.name || 'this seat'}? Their password is cleared and the seat is freed, so they can claim it again and set a new password. Their picks are NOT affected.`)) return;
+  await db.ref(`seatAuth/${pid}/passHash`).remove().catch(() => {});
   await db.ref(`participants/${pid}/claimedBy`).set(null);
 }
 
@@ -450,7 +454,7 @@ function renderParticipantsSection() {
           ${pickStatus} ${presenceLabel}
         </span>
         <span>
-          ${p.claimedBy ? `<button class="btn secondary" data-unclaim="${pid}">Unclaim</button>` : ''}
+          ${p.claimedBy ? `<button class="btn secondary" data-unclaim="${pid}">Reset password</button>` : ''}
           ${p.eliminatedWeek != null
             ? `<button class="btn secondary" data-reinstate="${pid}">Reinstate</button>`
             : `<button class="btn secondary" data-eliminate="${pid}">Eliminate</button>`}

@@ -6,7 +6,23 @@
     "participants": {
       ".read": "auth != null",
       "$pid": {
-        ".write": "auth != null && (root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val() || (!data.child('claimedBy').exists() && newData.child('claimedBy').val() === auth.uid) || data.child('claimedBy').val() === auth.uid)"
+        ".write": "auth != null && (root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val() || !root.child('seatAuth').child($pid).child('passHash').exists() || root.child('seatAuth').child($pid).child('authorized').child(auth.uid).val() === root.child('seatAuth').child($pid).child('passHash').val())"
+      }
+    },
+
+    "seatAuth": {
+      "$pid": {
+        "passHash": {
+          ".read": false,
+          ".write": "auth != null && (!data.exists() || root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val())",
+          ".validate": "!newData.exists() || newData.isString()"
+        },
+        "authorized": {
+          "$uid": {
+            ".read": "auth != null && auth.uid === $uid",
+            ".write": "auth != null && auth.uid === $uid && (!newData.exists() || (root.child('seatAuth').child($pid).child('passHash').exists() && newData.val() === root.child('seatAuth').child($pid).child('passHash').val()))"
+          }
+        }
       }
     },
 
@@ -19,7 +35,7 @@
       ".read": "auth != null",
       "$week": {
         "$pid": {
-          ".write": "auth != null && (root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val() || (root.child('participants').child($pid).child('claimedBy').val() === auth.uid && (!root.child('weeks').child($week).child('lockTime').exists() || now < root.child('weeks').child($week).child('lockTime').val())))"
+          ".write": "auth != null && (root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val() || (root.child('seatAuth').child($pid).child('passHash').exists() && root.child('seatAuth').child($pid).child('authorized').child(auth.uid).val() === root.child('seatAuth').child($pid).child('passHash').val() && (!root.child('weeks').child($week).child('lockTime').exists() || now < root.child('weeks').child($week).child('lockTime').val())))"
         }
       }
     },

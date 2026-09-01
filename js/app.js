@@ -196,7 +196,8 @@ const me = { identity: null, participantId: null };
 // every Firebase update, so anything not stored here — like which tab is
 // open — would otherwise snap back to the default each time someone else
 // makes a pick).
-const ui = { activeTab: 'pick', openScheduleTeam: null, rulesOpen: false };
+const ui = { activeTab: 'pick', openScheduleTeam: null, rulesOpen: false, claimingPid: null };
+let seatRestoreTried = false;
 
 // The full-season schedule is fetched directly from ESPN (read-only, no
 // Firebase involved) the first time anyone opens a schedule view, then
@@ -282,7 +283,14 @@ for (const node of ['participants', 'weeks', 'picks', 'config']) {
     if (firstFire) { dlog(`${node} listener fired (first time)`); firstFire = false; }
     S[node] = snap.val() || {};
     S.loaded = true;
-    if (node === 'participants') resolveMyParticipant();
+    if (node === 'participants') {
+      resolveMyParticipant();
+      // Only worth attempting once participants exist and we know our uid.
+      if (!me.participantId && !seatRestoreTried && me.identity) {
+        seatRestoreTried = true;
+        restoreSeatSession();
+      }
+    }
     render();
   }, err => {
     // No error callback here before meant a permission-denied (or any other
@@ -292,6 +300,11 @@ for (const node of ['participants', 'weeks', 'picks', 'config']) {
     // fixing regardless of whether it's the scroll issue's cause too.
     dlog(`${node} listener ERROR — ${err.code || ''} ${err.message}`);
   });
+}
+
+async function sha256Hex(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 function resolveMyParticipant() {
@@ -306,15 +319,58 @@ function resolveMyParticipant() {
   if (me.participantId) localStorage.setItem('ssp_participant', me.participantId);
 }
 
-async function claimParticipant(pid) {
-  if (!me.identity) return;
-  const res = await db.ref(`participants/${pid}/claimedBy`).transaction(cur => (cur == null ? me.identity : undefined));
-  if (res.committed) {
-    localStorage.setItem('ssp_participant', pid);
+// Re-authorize this device from the saved password on load, so returning
+// users don't retype it. Mirrors the admin panel's cached-passphrase flow:
+// the write is only accepted by the rules if the hash matches, so a stale
+// or wrong saved password simply fails and drops back to the sign-in list.
+async function restoreSeatSession() {
+  const pid = localStorage.getItem('ssp_participant');
+  const pass = localStorage.getItem('ssp_seatpass');
+  if (!pid || !pass || !me.identity || !S.participants[pid]) return;
+  try {
+    await db.ref(`seatAuth/${pid}/authorized/${me.identity}`).set(await sha256Hex(pass));
+    await db.ref(`participants/${pid}/claimedBy`).set(me.identity);
     me.participantId = pid;
+    dlog(`restoreSeatSession OK — ${pid}`);
     render();
-  } else {
-    alert('Someone already claimed that name. Pick yours, or ask the commissioner to add it.');
+  } catch (e) {
+    dlog(`restoreSeatSession failed — ${e.message}`);
+    localStorage.removeItem('ssp_seatpass');
+  }
+}
+
+// Seats are protected by a password chosen on first claim. The password is
+// never stored or sent anywhere — only its SHA-256. The client proves it
+// knows the password by writing that hash to seatAuth/{pid}/authorized/{uid},
+// which the security rules accept ONLY if it equals seatAuth/{pid}/passHash.
+// passHash lives outside /participants precisely because read permission
+// cascades in Firebase: anything under the publicly-readable /participants
+// node could be read and replayed by anyone, defeating the whole thing.
+async function submitSeatPassword(pid, password, isNew) {
+  if (!me.identity || !password) return;
+  const err = $('claimErr');
+  const hash = await sha256Hex(password);
+  try {
+    if (isNew) {
+      // Rules only allow this while no password exists, so two people racing
+      // to claim the same fresh seat can't overwrite each other — the loser's
+      // write is rejected and they fall through to the wrong-password path.
+      await db.ref(`seatAuth/${pid}/passHash`).set(hash);
+    }
+    await db.ref(`seatAuth/${pid}/authorized/${me.identity}`).set(hash);
+    await db.ref(`participants/${pid}/claimedBy`).set(me.identity);
+    localStorage.setItem('ssp_participant', pid);
+    localStorage.setItem('ssp_seatpass', password);
+    me.participantId = pid;
+    ui.claimingPid = null;
+    render();
+  } catch (e) {
+    if (err) {
+      err.textContent = isNew
+        ? 'Someone just claimed that name. Refresh and try signing in instead.'
+        : "That password doesn't match. Try again, or ask the commissioner to reset it.";
+      err.classList.remove('hidden');
+    }
   }
 }
 
@@ -486,18 +542,24 @@ function renderHeader(participant) {
     <div class="me-wrap">
       <button class="me-name" id="meNameBtn">${participant?.name || ''}${participant?.eliminatedWeek != null ? ' <span class="badge-out">ELIMINATED</span>' : ''}</button>
       <div class="me-menu hidden" id="meMenu">
-        <button class="btn secondary" id="unclaimSelfBtn">Unclaim seat</button>
+        <button class="btn secondary" id="unclaimSelfBtn">Sign out</button>
       </div>
     </div>
   </header>`;
 }
 
+// Sign out only forgets this device — the seat and its password stay put, so
+// you can sign back in here or anywhere else. (Unclaiming for real is an
+// admin action now; a seat with a password shouldn't be grabbable by anyone
+// who happens to open the link.)
 async function unclaimSelf() {
   if (!me.participantId) return;
-  if (!confirm("Unclaim your seat? You'll need to tap your name again to claim it — handy if you're switching devices, but anyone could claim it in the meantime.")) return;
-  await db.ref(`participants/${me.participantId}/claimedBy`).set(null);
+  if (!confirm("Sign out on this device? Your seat and picks stay exactly as they are — you'll just need your password to sign back in.")) return;
+  await db.ref(`seatAuth/${me.participantId}/authorized/${me.identity}`).remove().catch(() => {});
   localStorage.removeItem('ssp_participant');
+  localStorage.removeItem('ssp_seatpass');
   me.participantId = null;
+  ui.claimingPid = null;
   render();
 }
 
@@ -538,22 +600,52 @@ function renderRulesSection() {
 
 function renderClaimScreen() {
   dlog(`renderClaimScreen() — scrollY-before=${window.scrollY}`);
-  const unclaimed = Object.entries(S.participants || {}).filter(([, p]) => !p.claimedBy);
+  // Every name is listed now, not just unclaimed ones — with a password, a
+  // seat can be opened on a second device without unclaiming it first.
+  // hasPassword is inferred from claimedBy because seatAuth/passHash is
+  // deliberately unreadable by clients.
+  const all = Object.entries(S.participants || {});
+  const pid = ui.claimingPid;
+  const p = pid ? S.participants[pid] : null;
+  const isNew = p ? !p.claimedBy : false;
+
   $('app').innerHTML = `
     <header class="app-header"><h1>${S.config.poolName || 'SEC Survivor Pool'}</h1></header>
     ${renderRulesSection()}
     <div class="claim-screen">
-      <p>Tap your name to join. If you don't see it, ask the commissioner to add you.</p>
-      <div class="claim-list">
-        ${unclaimed.length
-          ? unclaimed.map(([pid, p]) => `<button class="claim-btn" data-pid="${pid}">${p.name}</button>`).join('')
-          : '<p class="muted">No unclaimed names right now.</p>'}
-      </div>
+      ${p ? `
+        <p><strong>${p.name}</strong></p>
+        <p class="muted" style="font-size:0.85rem;">
+          ${isNew
+            ? 'Pick a password for your seat. You\'ll use it to get back in on any other device — phone, laptop, whatever.'
+            : 'Enter your seat password to sign in on this device.'}
+        </p>
+        <div class="admin-row" style="margin-top:0.6rem;">
+          <input id="seatPass" type="password" placeholder="${isNew ? 'Choose a password' : 'Password'}" autocomplete="current-password">
+          <button class="btn" id="seatPassBtn">${isNew ? 'Claim seat' : 'Sign in'}</button>
+          <button class="btn secondary" id="seatCancelBtn">Back</button>
+        </div>
+        <div id="claimErr" class="err hidden"></div>
+      ` : `
+        <p>Tap your name to join. If you don't see it, ask the commissioner to add you.</p>
+        <div class="claim-list">
+          ${all.length
+            ? all.map(([id, q]) => `<button class="claim-btn" data-pid="${id}">${q.name}${q.claimedBy ? '' : ' <span class="muted">· new</span>'}</button>`).join('')
+            : '<p class="muted">No names set up yet.</p>'}
+        </div>
+      `}
     </div>
   `;
+
   document.querySelectorAll('.claim-btn').forEach(btn => {
-    btn.addEventListener('click', () => claimParticipant(btn.dataset.pid));
+    btn.addEventListener('click', () => { ui.claimingPid = btn.dataset.pid; render(); });
   });
+  $('seatCancelBtn')?.addEventListener('click', () => { ui.claimingPid = null; render(); });
+  const submit = () => submitSeatPassword(pid, $('seatPass').value, isNew);
+  $('seatPassBtn')?.addEventListener('click', submit);
+  $('seatPass')?.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  $('seatPass')?.focus();
+
   wireRulesSection();
   ensureScrolledToTop('claim-screen');
 }
