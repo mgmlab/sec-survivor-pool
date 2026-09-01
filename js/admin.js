@@ -7,17 +7,41 @@ import { autoPicksForWeek } from './autopick.js';
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
 
-function forceScrollTop() {
+// See js/app.js for the full diagnosis: on iOS the page can be painted
+// ~120px offset (hidden behind the address bar) while the document still
+// reports scrollY === 0, which makes a plain scrollTo(0,0) a no-op that
+// can never fix it. Scrolling to 1 and back forces a real scroll op.
+function jiggleScrollTop() {
+  window.scrollTo(0, 1);
   window.scrollTo(0, 0);
-  setTimeout(() => window.scrollTo(0, 0), 0);
-  setTimeout(() => window.scrollTo(0, 0), 100);
-  setTimeout(() => window.scrollTo(0, 0), 400);
+  if (document.documentElement) {
+    document.documentElement.scrollTop = 1;
+    document.documentElement.scrollTop = 0;
+  }
 }
 
-// See js/app.js for why this is on `pageshow`, not just render() calls:
-// mobile Safari's back-forward cache repaints a frozen old-scroll snapshot
-// without re-running any JS on this page at all.
+function forceScrollTop() {
+  jiggleScrollTop();
+  setTimeout(jiggleScrollTop, 0);
+  setTimeout(jiggleScrollTop, 100);
+  setTimeout(jiggleScrollTop, 400);
+  setTimeout(jiggleScrollTop, 900);
+}
+
 window.addEventListener('pageshow', forceScrollTop);
+
+let userHasScrolled = false;
+['touchstart', 'wheel', 'keydown'].forEach(evt =>
+  window.addEventListener(evt, () => { userHasScrolled = true; }, { passive: true, once: true })
+);
+const pageLoadedAt = Date.now();
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    if (userHasScrolled || Date.now() - pageLoadedAt > 4000) return;
+    jiggleScrollTop();
+    setTimeout(jiggleScrollTop, 50);
+  });
+}
 
 function ensureScrolledToTop(screenKey) {
   if (screenKey === lastScreenKey) return;

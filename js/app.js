@@ -76,12 +76,61 @@ if (DEBUG) {
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
 
-function forceScrollTop() {
-  dlog(`forceScrollTop() called — scrollY=${window.scrollY}`);
+// PROVEN by on-device logging + screenshot: the document reports scrollY=0
+// and .app-header's rect top=0 (i.e. "already at the top") while the header
+// is VISUALLY pushed ~120px off screen behind the browser's address bar.
+// The viewport height in the log bounces 956 -> 758 -> 956 -> 758: the page
+// gets laid out while the toolbar is hidden (tall viewport), then the
+// toolbar appears (short viewport) and the painted content stays put,
+// hidden behind it.
+//
+// The critical consequence: `scrollTo(0, 0)` when scrollY is ALREADY 0 is a
+// no-op — the browser has nothing to do, so it never re-syncs. That's why
+// four previous fixes all failed; they were calling a function that could
+// not possibly have an effect. Scrolling to 1 and back to 0 forces a real
+// scroll operation, which makes the browser recompute what it's painting.
+function jiggleScrollTop() {
+  window.scrollTo(0, 1);
   window.scrollTo(0, 0);
-  setTimeout(() => { window.scrollTo(0, 0); dlog(`  +0ms scrollY=${window.scrollY}`); }, 0);
-  setTimeout(() => { window.scrollTo(0, 0); dlog(`  +100ms scrollY=${window.scrollY}`); }, 100);
-  setTimeout(() => { window.scrollTo(0, 0); dlog(`  +400ms scrollY=${window.scrollY}`); }, 400);
+  if (document.documentElement) {
+    document.documentElement.scrollTop = 1;
+    document.documentElement.scrollTop = 0;
+  }
+}
+
+function logGeometry(label) {
+  if (!DEBUG) return;
+  const rect = document.querySelector('.app-header')?.getBoundingClientRect();
+  dlog(`  ${label} headerTop=${rect ? Math.round(rect.top) : 'n/a'} scrollY=${window.scrollY} vvH=${window.visualViewport?.height}`);
+}
+
+function forceScrollTop() {
+  dlog(`forceScrollTop() — scrollY=${window.scrollY}`);
+  jiggleScrollTop();
+  setTimeout(() => { jiggleScrollTop(); logGeometry('+0ms'); }, 0);
+  setTimeout(() => { jiggleScrollTop(); logGeometry('+100ms'); }, 100);
+  setTimeout(() => { jiggleScrollTop(); logGeometry('+400ms'); }, 400);
+  setTimeout(() => { jiggleScrollTop(); logGeometry('+900ms'); }, 900);
+}
+
+// The offset appears when the toolbar shows/hides AFTER layout, so also
+// re-correct on visual-viewport resize — but only briefly after load, and
+// only until the user scrolls on purpose, so this can never fight someone
+// who has deliberately scrolled down (the toolbar collapses as you scroll,
+// which fires this same event).
+let userHasScrolled = false;
+['touchstart', 'wheel', 'keydown'].forEach(evt =>
+  window.addEventListener(evt, () => { userHasScrolled = true; }, { passive: true, once: true })
+);
+const pageLoadedAt = Date.now();
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    if (userHasScrolled) return;
+    if (Date.now() - pageLoadedAt > 4000) return;
+    dlog(`visualViewport resize -> re-correcting (vvH=${window.visualViewport.height})`);
+    jiggleScrollTop();
+    setTimeout(jiggleScrollTop, 50);
+  });
 }
 
 // "Close the tab, reopen the link" restoring an old scroll position is very
