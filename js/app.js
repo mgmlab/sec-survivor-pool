@@ -40,6 +40,30 @@ if (DEBUG) {
   window.addEventListener('scroll', () => dlog(`scroll event — scrollY=${window.scrollY}`));
   window.addEventListener('error', e => dlog(`ERROR — ${e.message} @ ${e.filename}:${e.lineno}`));
   window.addEventListener('unhandledrejection', e => dlog(`UNHANDLED REJECTION — ${e.reason?.message || e.reason}`));
+
+  // window.scrollY is the DOCUMENT's own scroll position. iOS's visual
+  // viewport (what's actually on screen while the address bar animates
+  // in/out) is a SEPARATE coordinate system that can shift on its own —
+  // it wouldn't show up as a `scroll` event on window at all, which would
+  // explain scrollY reading 0 the whole time even if the bug is real.
+  if (window.visualViewport) {
+    const vv = window.visualViewport;
+    dlog(`visualViewport initial — w=${vv.width} h=${vv.height} offsetTop=${vv.offsetTop} pageTop=${vv.pageTop} scale=${vv.scale}`);
+    vv.addEventListener('resize', () => dlog(`visualViewport RESIZE — w=${vv.width} h=${vv.height} offsetTop=${vv.offsetTop} pageTop=${vv.pageTop} scale=${vv.scale}`));
+    vv.addEventListener('scroll', () => dlog(`visualViewport SCROLL — offsetTop=${vv.offsetTop} pageTop=${vv.pageTop}`));
+  } else {
+    dlog('window.visualViewport not supported on this browser');
+  }
+
+  // Also capture actual layout geometry — if the header/rules are genuinely
+  // present in the DOM with normal position but something ABOVE them is
+  // taking up unexpected height (rather than anything scroll-related),
+  // that'd show up here instead.
+  setTimeout(() => {
+    const header = document.querySelector('.app-header');
+    const rect = header?.getBoundingClientRect();
+    dlog(`+1s geometry check — header top=${rect?.top} bodyScrollHeight=${document.body.scrollHeight} innerHeight=${window.innerHeight} visualViewportHeight=${window.visualViewport?.height}`);
+  }, 1000);
 }
 
 // Mobile browsers sometimes restore a previous scroll position (or drift
