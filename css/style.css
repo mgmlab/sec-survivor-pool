@@ -164,8 +164,23 @@ body {
 
 .queue-pickable { cursor: pointer; }
 .queue-pickable:hover { background: var(--panel-2); }
-.queue-selected { background: #2b2411; box-shadow: inset 0 0 0 1px var(--accent); font-weight: 700; cursor: pointer; }
-.queue-disabled { opacity: 0.35; text-decoration: line-through; cursor: not-allowed; }
+.queue-selected {
+  background: #3d2f0a;
+  box-shadow: inset 0 0 0 2px var(--accent);
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+}
+.queue-remove-hint {
+  display: inline-block;
+  margin-left: 0.2rem;
+  color: var(--accent);
+  font-weight: 700;
+}
+/* Muted grey rather than dimmed conference colors — low-opacity colored text
+   on this dark a background was reported unreadable; a single flat, legible
+   tone reads better than "technically correct but very hard to see". */
+.queue-disabled { color: var(--muted); cursor: not-allowed; }
 
 .modal-overlay {
   position: fixed;

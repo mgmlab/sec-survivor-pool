@@ -207,7 +207,16 @@ function mergedWeeksFor(extraWeekNumbers = []) {
 async function submitPick(team, weekNumber = S.config.currentWeek || 1) {
   const week = weekDataFor(weekNumber);
   if (isLocked(week)) { alert(`Picks are locked for week ${weekNumber}.`); return; }
-  await db.ref(`picks/${weekNumber}/${me.participantId}`).set({ team, pickedAt: Date.now() });
+  const current = S.picks?.[weekNumber]?.[me.participantId]?.team;
+  if (current === team) {
+    // Tapping your own current pick again clears it, rather than being a
+    // no-op — the only way to go from "picked" back to "no pick" otherwise
+    // would be picking a different team first, which isn't obvious and
+    // burns nothing but is still confusing.
+    await db.ref(`picks/${weekNumber}/${me.participantId}`).remove();
+  } else {
+    await db.ref(`picks/${weekNumber}/${me.participantId}`).set({ team, pickedAt: Date.now() });
+  }
 }
 
 const TABS = ['pick', 'standings', 'history', 'schedule'];
@@ -346,8 +355,8 @@ function renderPickScreen(participant) {
     // schedule needs to work even for teams that aren't pickable right now.
     return `<div class="team-card-wrap">
       <button class="team-card ${t.selected ? 'selected' : ''} ${disabled ? 'disabled' : ''}"
-              data-team="${t.abbr}" ${disabled ? 'disabled' : ''}>
-        <div class="team-name">${t.name}</div>
+              data-team="${t.abbr}" ${disabled ? 'disabled' : ''} ${t.selected ? 'title="Tap to remove this pick"' : ''}>
+        <div class="team-name">${t.name}${t.selected ? ' <span class="queue-remove-hint">✕</span>' : ''}</div>
         <div class="team-opp">${opponentLine}</div>
         ${meta ? `<div class="team-meta">${meta}</div>` : ''}
         ${t.flag ? `<div class="team-flag">${t.flag}</div>` : ''}
@@ -480,10 +489,12 @@ function renderScheduleTab(participant) {
         // (this exact bug shipped once already: CSS made it look blocked,
         // but nothing actually stopped the click).
         if (t.disabled) {
-          return `<td class="${confClass} queue-disabled" title="${t.flag}">${label}</td>`;
+          return `<td class="queue-disabled" title="${t.flag}">${label}</td>`;
         }
-        const cellClass = `${confClass} ${t.selected ? 'queue-selected' : 'queue-pickable'}`;
-        return `<td class="${cellClass}" data-queue-pick="${wn}:${team.abbr}">${label}</td>`;
+        if (t.selected) {
+          return `<td class="${confClass} queue-selected" data-queue-pick="${wn}:${team.abbr}" title="Your pick — tap to remove">${label} <span class="queue-remove-hint">✕</span></td>`;
+        }
+        return `<td class="${confClass} queue-pickable" data-queue-pick="${wn}:${team.abbr}" title="Tap to pick ${schoolNameFor(team.abbr)} for week ${wn}">${label}</td>`;
       }).join('')}
     </tr>`;
   }).join('');
