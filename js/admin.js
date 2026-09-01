@@ -1,12 +1,8 @@
 import { fetchGames } from '../data-source/provider.js';
 import { computeEliminations } from './elimination.js';
 import { ALL_CONFERENCES } from '../data-source/power4-teams.js';
-
-const RULE_DEFAULTS = {
-  maxTeamUses: 1,
-  maxSecOpponentPicks: 2,
-  eligibleConferences: Object.fromEntries(ALL_CONFERENCES.map(c => [c, true])),
-};
+import { RULE_DEFAULTS, isLocked } from './eligibility.js';
+import { autoPicksForWeek } from './autopick.js';
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
@@ -167,15 +163,43 @@ async function forceRecomputeLockTime(n) {
 }
 
 // ---- eliminations ----
-function previewEliminations(n) {
+// If the policy is auto-pick and the week is locked, assigns a random
+// rule-eligible team to everyone who hasn't picked yet (eliminating anyone
+// with zero eligible teams left instead). Writes go straight to Firebase;
+// the return value is a locally-merged view of this week's picks so the
+// caller doesn't have to wait on the listener round-trip to see them.
+async function runAutoPickIfNeeded(n) {
   const week = S.weeks[n];
-  const picksForWeek = S.picks[n] || {};
-  const result = computeEliminations(week, picksForWeek, S.participants, n, S.config.noPickPolicy || 'eliminate');
-  return result;
+  const noPickPolicy = S.config.noPickPolicy || 'eliminate';
+  if (noPickPolicy !== 'autopick' || !isLocked(week)) return S.picks[n] || {};
+
+  const assignments = autoPicksForWeek({
+    week, weekNumber: n, picks: S.picks, weeks: S.weeks, participants: S.participants, config: S.config,
+  });
+
+  const pickUpdates = {};
+  const elimUpdates = {};
+  const merged = { ...(S.picks[n] || {}) };
+  for (const [pid, team] of Object.entries(assignments)) {
+    if (team) {
+      const pick = { team, pickedAt: Date.now(), autoPicked: true };
+      pickUpdates[`picks/${n}/${pid}`] = pick;
+      merged[pid] = pick;
+    } else {
+      elimUpdates[`participants/${pid}/eliminatedWeek`] = n;
+      elimUpdates[`participants/${pid}/eliminatedReason`] = 'No eligible teams remained for auto-pick';
+    }
+  }
+  if (Object.keys(pickUpdates).length) await db.ref().update(pickUpdates);
+  if (Object.keys(elimUpdates).length) await db.ref().update(elimUpdates);
+
+  return merged;
 }
 
 async function runEliminations(n) {
-  const preview = previewEliminations(n);
+  const picksForWeek = await runAutoPickIfNeeded(n);
+  const week = S.weeks[n];
+  const preview = computeEliminations(week, picksForWeek, S.participants, n, S.config.noPickPolicy || 'eliminate');
   const names = Object.keys(preview).map(pid => `${S.participants[pid]?.name}: ${preview[pid].eliminatedReason}`);
   if (!names.length) { alert('No new eliminations for week ' + n + '.'); return; }
   if (!confirm(`Eliminate:\n\n${names.join('\n')}\n\nApply?`)) return;
@@ -254,8 +278,9 @@ function renderConfigSection() {
     <div class="admin-row">
       <label>If no pick submitted by lock:
         <select id="noPickPolicy">
-          <option value="eliminate" ${S.config.noPickPolicy !== 'skip' ? 'selected' : ''}>Eliminate</option>
+          <option value="eliminate" ${(S.config.noPickPolicy || 'eliminate') === 'eliminate' ? 'selected' : ''}>Eliminate</option>
           <option value="skip" ${S.config.noPickPolicy === 'skip' ? 'selected' : ''}>Skip (no penalty)</option>
+          <option value="autopick" ${S.config.noPickPolicy === 'autopick' ? 'selected' : ''}>Auto-pick (random eligible team)</option>
         </select>
       </label>
     </div>

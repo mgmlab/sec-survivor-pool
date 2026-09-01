@@ -1,3 +1,9 @@
 node_modules/
 *.log
 .DS_Store
+
+# Firebase service-account keys must never be committed — they grant full
+# admin access to the database. The GitHub Actions secret is the only place
+# this content should live.
+*firebase-adminsdk*.json
+*-service-account*.json

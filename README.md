@@ -66,6 +66,33 @@ from ESPN rather than hand-typed — regenerate it the same way (fetch each
 conference's `groups=` scoreboard across a full season, keep only
 `conferenceCompetition: true` games) if realignment happens again.
 
+The rule engine itself (which teams are pickable, why not) lives in one shared,
+pure module — [`js/eligibility.js`](js/eligibility.js) — imported by the pick
+screen's grey-out UI, the admin panel's auto-pick step, and the cron script.
+All three read the same logic, so they can never disagree about what's legal.
+
+### If no pick is submitted by lock
+
+Three options in admin's **Pool settings**:
+- **Eliminate** — the standard survivor rule.
+- **Skip** — no penalty, no team used that week.
+- **Auto-pick** — a team is randomly assigned from whatever that person could
+  still legally pick (not used up, opponent in an eligible conference, under
+  the SEC-vs-SEC cap). If literally nothing is eligible, they're eliminated
+  instead with that reason shown. Auto-picked weeks are flagged "(auto)" in
+  the History tab. This runs both from admin's **Run eliminations** button and
+  automatically from the scheduled GitHub Action — [`js/autopick.js`](js/autopick.js)
+  uses a seeded random per participant+week, so re-running it (the cron fires
+  repeatedly) never reassigns a different team once one's been written.
+
+## Rules & how to play (player-facing)
+
+`index.html` shows a collapsible "Rules & how to play" section right under the
+header, built dynamically from the *actual current* admin settings — not
+static copy — so it can never go stale if the commissioner changes a rule
+mid-season. If you want to change the wording, edit `renderRulesSection()` in
+[`js/app.js`](js/app.js).
+
 ## Full schedule / planning view
 
 A fourth tab ("Schedule") shows every SEC team's full-season schedule at once,

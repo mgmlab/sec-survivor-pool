@@ -49,6 +49,28 @@ body {
   font-weight: 700;
 }
 
+.rules-section {
+  margin: 0 1rem 0.9rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.7rem 0.9rem;
+  font-size: 0.85rem;
+}
+.rules-section summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text);
+  list-style: none;
+}
+.rules-section summary::-webkit-details-marker { display: none; }
+.rules-section summary::before { content: '▸ '; color: var(--accent); }
+.rules-section[open] summary::before { content: '▾ '; }
+.rules-body { margin-top: 0.6rem; color: var(--muted); }
+.rules-body ul { margin: 0; padding-left: 1.1rem; }
+.rules-body li { margin-bottom: 0.4rem; line-height: 1.4; }
+.rules-body strong { color: var(--text); }
+
 .tabs {
   display: flex;
   gap: 0.4rem;

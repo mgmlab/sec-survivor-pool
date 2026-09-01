@@ -19,7 +19,7 @@
       ".read": "auth != null",
       "$week": {
         "$pid": {
-          ".write": "auth != null && (root.child('participants').child($pid).child('claimedBy').val() === auth.uid || root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val()) && (!root.child('weeks').child($week).child('lockTime').exists() || now < root.child('weeks').child($week).child('lockTime').val())"
+          ".write": "auth != null && (root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val() || (root.child('participants').child($pid).child('claimedBy').val() === auth.uid && (!root.child('weeks').child($week).child('lockTime').exists() || now < root.child('weeks').child($week).child('lockTime').val())))"
         }
       }
     },

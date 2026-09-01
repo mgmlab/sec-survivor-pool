@@ -1,12 +1,7 @@
 import { SEC_TEAMS } from '../data-source/teams.js';
-import { conferenceOf, ALL_CONFERENCES } from '../data-source/power4-teams.js';
+import { conferenceOf } from '../data-source/power4-teams.js';
 import { fetchGames } from '../data-source/provider.js';
-
-const RULE_DEFAULTS = {
-  maxTeamUses: 1,
-  maxSecOpponentPicks: 2,
-  eligibleConferences: Object.fromEntries(ALL_CONFERENCES.map(c => [c, true])),
-};
+import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked } from './eligibility.js';
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
@@ -18,7 +13,7 @@ const me = { identity: null, participantId: null };
 // every Firebase update, so anything not stored here — like which tab is
 // open — would otherwise snap back to the default each time someone else
 // makes a pick).
-const ui = { activeTab: 'pick', openScheduleTeam: null };
+const ui = { activeTab: 'pick', openScheduleTeam: null, rulesOpen: false };
 
 // The full-season schedule is fetched directly from ESPN (read-only, no
 // Firebase involved) the first time anyone opens a schedule view, then
@@ -77,44 +72,6 @@ async function claimParticipant(pid) {
   } else {
     alert('Someone already claimed that name. Pick yours, or ask the commissioner to add it.');
   }
-}
-
-function gameForTeam(week, abbr) {
-  const games = Object.values(week?.games || {});
-  return games.find(g => g.home.abbr === abbr || g.away.abbr === abbr) || null;
-}
-
-function opponentAbbrFor(week, teamAbbr) {
-  const game = gameForTeam(week, teamAbbr);
-  if (!game) return null;
-  return game.home.abbr === teamAbbr ? game.away.abbr : game.home.abbr;
-}
-
-// Counts only locked/past weeks (< currentWeek) — an in-progress pick for the
-// current week doesn't burn a use until its week actually locks, so switching
-// picks freely before lock never wastes anything.
-function usageStatsFor(pid) {
-  const currentWeek = S.config.currentWeek || 1;
-  const teamUseCounts = {};
-  let secOpponentCount = 0;
-
-  for (const [weekStr, weekPicks] of Object.entries(S.picks || {})) {
-    const weekNum = Number(weekStr);
-    if (weekNum >= currentWeek) continue;
-    const pick = weekPicks?.[pid];
-    if (!pick?.team) continue;
-
-    teamUseCounts[pick.team] = (teamUseCounts[pick.team] || 0) + 1;
-
-    const opponentAbbr = opponentAbbrFor(S.weeks[weekNum], pick.team);
-    if (opponentAbbr && conferenceOf(opponentAbbr) === 'SEC') secOpponentCount++;
-  }
-
-  return { teamUseCounts, secOpponentCount };
-}
-
-function isLocked(week) {
-  return !!(week?.lockTime && Date.now() > week.lockTime);
 }
 
 function seasonYearGuess() {
@@ -195,6 +152,7 @@ function render() {
   const participant = S.participants[me.participantId];
   $('app').innerHTML = `
     ${renderHeader(participant)}
+    ${renderRulesSection()}
     <nav class="tabs">
       <button class="tab-btn ${ui.activeTab === 'pick' ? 'active' : ''}" data-tab="pick">Pick</button>
       <button class="tab-btn ${ui.activeTab === 'standings' ? 'active' : ''}" data-tab="standings">Standings</button>
@@ -210,6 +168,13 @@ function render() {
   wireTabs();
   wirePickButtons();
   wireScheduleLinks();
+  wireRulesSection();
+}
+
+function wireRulesSection() {
+  document.querySelector('.rules-section')?.addEventListener('toggle', e => {
+    ui.rulesOpen = e.target.open;
+  });
 }
 
 function renderHeader(participant) {
@@ -219,10 +184,40 @@ function renderHeader(participant) {
   </header>`;
 }
 
+function renderRulesSection() {
+  const maxTeamUses = S.config.maxTeamUses ?? RULE_DEFAULTS.maxTeamUses;
+  const maxSecOpponentPicks = S.config.maxSecOpponentPicks ?? RULE_DEFAULTS.maxSecOpponentPicks;
+  const eligibleConferences = S.config.eligibleConferences || RULE_DEFAULTS.eligibleConferences;
+  const enabledConfs = Object.entries(eligibleConferences).filter(([, v]) => v).map(([c]) => c);
+  const noPickPolicy = S.config.noPickPolicy || 'eliminate';
+
+  const noPickText = {
+    eliminate: "If you don't submit a pick before lock, you're eliminated that week.",
+    skip: "If you don't submit a pick before lock, you skip that week with no penalty — no team gets used up.",
+    autopick: "If you don't submit a pick before lock, one is randomly assigned to you from whatever teams you can still legally pick. If none are left, you're eliminated.",
+  }[noPickPolicy] || '';
+
+  return `<details class="rules-section" ${ui.rulesOpen ? 'open' : ''}>
+    <summary>Rules &amp; how to play</summary>
+    <div class="rules-body">
+      <ul>
+        <li>Each week, pick one SEC team you think will win. If they lose (or tie), you're eliminated.</li>
+        <li>Last participant(s) still alive win the pool.</li>
+        <li>Each team can be picked up to <strong>${maxTeamUses}</strong> time${maxTeamUses === 1 ? '' : 's'} all season.</li>
+        <li>You can pick a game against another SEC team up to <strong>${maxSecOpponentPicks}</strong> time${maxSecOpponentPicks === 1 ? '' : 's'} all season.</li>
+        <li>Your team's opponent must belong to one of: <strong>${enabledConfs.join(', ') || 'none currently enabled'}</strong>.</li>
+        <li>Picks lock at kickoff of the first SEC game each week — you can't change a pick after that.</li>
+        <li>${noPickText}</li>
+      </ul>
+    </div>
+  </details>`;
+}
+
 function renderClaimScreen() {
   const unclaimed = Object.entries(S.participants || {}).filter(([, p]) => !p.claimedBy);
   $('app').innerHTML = `
     <header class="app-header"><h1>${S.config.poolName || 'SEC Survivor Pool'}</h1></header>
+    ${renderRulesSection()}
     <div class="claim-screen">
       <p>Tap your name to join. If you don't see it, ask the commissioner to add you.</p>
       <div class="claim-list">
@@ -235,6 +230,7 @@ function renderClaimScreen() {
   document.querySelectorAll('.claim-btn').forEach(btn => {
     btn.addEventListener('click', () => claimParticipant(btn.dataset.pid));
   });
+  wireRulesSection();
 }
 
 function renderPickScreen(participant) {
@@ -247,10 +243,6 @@ function renderPickScreen(participant) {
 
   const currentWeek = S.config.currentWeek || 1;
   const week = S.weeks[currentWeek];
-  const maxTeamUses = S.config.maxTeamUses ?? RULE_DEFAULTS.maxTeamUses;
-  const maxSecOpponentPicks = S.config.maxSecOpponentPicks ?? RULE_DEFAULTS.maxSecOpponentPicks;
-  const eligibleConferences = S.config.eligibleConferences || RULE_DEFAULTS.eligibleConferences;
-  const { teamUseCounts, secOpponentCount } = usageStatsFor(me.participantId);
   const myPick = S.picks?.[currentWeek]?.[me.participantId]?.team;
   const locked = isLocked(week);
 
@@ -262,47 +254,33 @@ function renderPickScreen(participant) {
     ? new Date(week.lockTime).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     : 'TBD';
 
-  const cards = SEC_TEAMS.map(team => {
-    const game = gameForTeam(week, team.abbr);
-    const selected = myPick === team.abbr;
-    const usesLeft = maxTeamUses - (teamUseCounts[team.abbr] || 0);
-    const teamExhausted = usesLeft <= 0;
+  const evaluated = evaluateTeamsForWeek({
+    week, picks: S.picks, weeks: S.weeks, currentWeek, pid: me.participantId, config: S.config, myPick,
+  });
 
-    let opponentConf = null;
+  const cards = evaluated.map(t => {
     let opponentLine = 'BYE';
-    let flag = teamExhausted ? `used ${teamUseCounts[team.abbr]}/${maxTeamUses} times` : '';
-
-    if (game) {
-      const isHome = game.home.abbr === team.abbr;
-      const opp = isHome ? game.away : game.home;
-      opponentConf = conferenceOf(opp.abbr);
+    if (t.game) {
+      const isHome = t.game.home.abbr === t.abbr;
+      const opp = isHome ? t.game.away : t.game.home;
       opponentLine = `${isHome ? 'vs' : '@'} ${opp.name}`;
-      if (game.completed) opponentLine += ` — Final ${game.away.score}-${game.home.score}`;
+      if (t.game.completed) opponentLine += ` — Final ${t.game.away.score}-${t.game.home.score}`;
     }
 
-    const notPower4 = game && !opponentConf;
-    const confDisabled = game && opponentConf && !eligibleConferences[opponentConf];
-    const secCapHit = game && opponentConf === 'SEC' && secOpponentCount >= maxSecOpponentPicks;
-
-    if (!selected) {
-      if (notPower4 || confDisabled) flag = 'opponent not eligible (not Power 4)';
-      else if (secCapHit) flag = `SEC-vs-SEC limit reached (${secOpponentCount}/${maxSecOpponentPicks})`;
-    }
-
-    const disabled = !selected && (teamExhausted || !game || notPower4 || confDisabled || secCapHit || locked);
+    const disabled = t.disabled || (!t.selected && locked);
 
     // The pick action and the schedule link are separate controls (not
     // schedule-link nested inside the pick <button>) because a disabled
     // <button> also blocks clicks on its children — and viewing a team's
     // schedule needs to work even for teams that aren't pickable right now.
     return `<div class="team-card-wrap">
-      <button class="team-card ${selected ? 'selected' : ''} ${disabled ? 'disabled' : ''}"
-              data-team="${team.abbr}" ${disabled ? 'disabled' : ''}>
-        <div class="team-name">${team.name}</div>
+      <button class="team-card ${t.selected ? 'selected' : ''} ${disabled ? 'disabled' : ''}"
+              data-team="${t.abbr}" ${disabled ? 'disabled' : ''}>
+        <div class="team-name">${t.name}</div>
         <div class="team-opp">${opponentLine}</div>
-        ${flag ? `<div class="team-flag">${flag}</div>` : ''}
+        ${t.flag ? `<div class="team-flag">${t.flag}</div>` : ''}
       </button>
-      <div class="schedule-link" data-schedule-team="${team.abbr}">Full schedule →</div>
+      <div class="schedule-link" data-schedule-team="${t.abbr}">Full schedule →</div>
     </div>`;
   }).join('');
 
@@ -350,7 +328,7 @@ function renderHistory() {
           const game = gameForTeam(S.weeks[w], pick.team);
           let cls = 'pending';
           if (game?.completed) cls = game.winnerAbbr === pick.team ? 'won' : 'lost';
-          return `<td class="pick-${cls}">${pick.team}</td>`;
+          return `<td class="pick-${cls}">${pick.team}${pick.autoPicked ? '<span class="muted"> (auto)</span>' : ''}</td>`;
         }).join('')}
       </tr>`).join('')}
     </tbody>
