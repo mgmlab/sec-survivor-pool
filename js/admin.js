@@ -17,6 +17,13 @@ const db = firebase.database();
 
 const S = { participants: {}, weeks: {}, picks: {}, config: {}, views: {}, presence: {}, loaded: false };
 const me = { identity: null, admin: false };
+// Week sections shown that don't have Firebase data (or config.currentWeek)
+// backing them yet — lets admin open a blank section for a week number to
+// set its dates before ever syncing it. Without this there was no way to
+// configure a week other than whichever one happened to be current, and
+// "Save dates" for a week you meant to add would silently overwrite
+// whatever week WAS showing instead.
+const ui = { extraWeeks: new Set() };
 
 const $ = id => document.getElementById(id);
 
@@ -408,9 +415,10 @@ function renderParticipantsSection() {
 
 function renderWeeksSection() {
   const currentWeek = S.config.currentWeek || 1;
-  const weeksToShow = [...new Set([currentWeek, ...Object.keys(S.weeks).map(Number)])].sort((a, b) => a - b);
+  const weeksToShow = [...new Set([currentWeek, ...Object.keys(S.weeks).map(Number), ...ui.extraWeeks])].sort((a, b) => a - b);
+  const nextSuggested = Math.max(currentWeek, ...weeksToShow) + 1;
 
-  return weeksToShow.map(n => {
+  const sections = weeksToShow.map(n => {
     const week = S.weeks[n] || {};
     const games = Object.entries(week.games || {});
     return `<div class="admin-section">
@@ -433,6 +441,13 @@ function renderWeeksSection() {
         </div>`).join('') : '<p class="muted">No games synced yet.</p>'}
     </div>`;
   }).join('');
+
+  return sections + `<div class="admin-section">
+    <div class="admin-row">
+      <label>Set up week <input type="number" id="newWeekNum" min="1" style="width:4rem" value="${nextSuggested}"></label>
+      <button class="btn secondary" id="addWeekBtn">Add week section</button>
+    </div>
+  </div>`;
 }
 
 function wireAdminEvents() {
@@ -453,4 +468,11 @@ function wireAdminEvents() {
     const [n, gid] = b.dataset.override.split(':');
     overrideGame(Number(n), gid);
   }));
+
+  $('addWeekBtn')?.addEventListener('click', () => {
+    const n = Number($('newWeekNum').value);
+    if (!n || n < 1) return;
+    ui.extraWeeks.add(n);
+    render();
+  });
 }
