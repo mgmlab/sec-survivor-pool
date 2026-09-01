@@ -219,7 +219,7 @@ async function submitPick(team, weekNumber = S.config.currentWeek || 1) {
   }
 }
 
-const TABS = ['pick', 'standings', 'history', 'schedule'];
+const TABS = ['pick', 'schedule', 'standings', 'history'];
 
 function render() {
   if (!S.loaded) return;
@@ -230,9 +230,9 @@ function render() {
     ${renderRulesSection()}
     <nav class="tabs">
       <button class="tab-btn ${ui.activeTab === 'pick' ? 'active' : ''}" data-tab="pick">Pick</button>
+      <button class="tab-btn ${ui.activeTab === 'schedule' ? 'active' : ''}" data-tab="schedule">Schedule</button>
       <button class="tab-btn ${ui.activeTab === 'standings' ? 'active' : ''}" data-tab="standings">Standings</button>
       <button class="tab-btn ${ui.activeTab === 'history' ? 'active' : ''}" data-tab="history">History</button>
-      <button class="tab-btn ${ui.activeTab === 'schedule' ? 'active' : ''}" data-tab="schedule">Schedule</button>
     </nav>
     <div id="tab-pick" class="tab-panel ${ui.activeTab === 'pick' ? '' : 'hidden'}">${renderPickScreen(participant)}</div>
     <div id="tab-standings" class="tab-panel ${ui.activeTab === 'standings' ? '' : 'hidden'}">${renderStandings()}</div>
