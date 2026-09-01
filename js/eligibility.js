@@ -26,17 +26,22 @@ export function opponentAbbrFor(week, teamAbbr) {
   return game.home.abbr === teamAbbr ? game.away.abbr : game.home.abbr;
 }
 
-// Counts only locked/past weeks (< currentWeek) — an in-progress pick for the
-// current week doesn't burn a use until its week actually locks, so switching
-// picks freely before lock never wastes anything.
+// Counts every OTHER week's pick (any week except `excludeWeek`) — not just
+// past/locked ones. Picks can now be queued ahead for future weeks (the
+// Schedule tab doubles as a pick queue), so a team queued for week 7 must
+// still count as "used" while you're deciding week 3, otherwise the same
+// team could be double-booked across weeks. Excluding only the one week
+// being edited (rather than "everything from here on") means an in-progress
+// selection for THAT week never counts against itself, while every other
+// week — past, current, or future-queued — does.
 // `picks` and `weeks` are the FULL /picks and /weeks objects (all weeks).
-export function usageStatsFor(picks, weeks, currentWeek, pid) {
+export function usageStatsFor(picks, weeks, excludeWeek, pid) {
   const teamUseCounts = {};
   let secOpponentCount = 0;
 
   for (const [weekStr, weekPicks] of Object.entries(picks || {})) {
     const weekNum = Number(weekStr);
-    if (weekNum >= currentWeek) continue;
+    if (weekNum === excludeWeek) continue;
     const pick = weekPicks?.[pid];
     if (!pick?.team) continue;
 
@@ -50,14 +55,16 @@ export function usageStatsFor(picks, weeks, currentWeek, pid) {
 }
 
 /**
- * Evaluates every SEC team's pickability for one participant in one week.
+ * Evaluates every SEC team's pickability for one participant in one week
+ * (`weekNumber` — the week being edited/viewed, not necessarily the pool's
+ * current week; the Schedule/queue view calls this once per future week too).
  * Returns one row per team: { abbr, name, game, opponentConf, flag, disabled, selected }.
  */
-export function evaluateTeamsForWeek({ week, picks, weeks, currentWeek, pid, config, myPick = null }) {
+export function evaluateTeamsForWeek({ week, picks, weeks, weekNumber, pid, config, myPick = null }) {
   const maxTeamUses = config?.maxTeamUses ?? RULE_DEFAULTS.maxTeamUses;
   const maxSecOpponentPicks = config?.maxSecOpponentPicks ?? RULE_DEFAULTS.maxSecOpponentPicks;
   const eligibleConferences = config?.eligibleConferences || RULE_DEFAULTS.eligibleConferences;
-  const { teamUseCounts, secOpponentCount } = usageStatsFor(picks, weeks, currentWeek, pid);
+  const { teamUseCounts, secOpponentCount } = usageStatsFor(picks, weeks, weekNumber, pid);
 
   return SEC_TEAMS.map(team => {
     const game = gameForTeam(week, team.abbr);
@@ -88,9 +95,9 @@ export function evaluateTeamsForWeek({ week, picks, weeks, currentWeek, pid, con
   });
 }
 
-/** Just the abbreviations of teams this participant could legally pick right now. */
-export function eligibleTeamsFor({ week, picks, weeks, currentWeek, pid, config }) {
-  return evaluateTeamsForWeek({ week, picks, weeks, currentWeek, pid, config })
+/** Just the abbreviations of teams this participant could legally pick for weekNumber. */
+export function eligibleTeamsFor({ week, picks, weeks, weekNumber, pid, config }) {
+  return evaluateTeamsForWeek({ week, picks, weeks, weekNumber, pid, config })
     .filter(t => !t.disabled)
     .map(t => t.abbr);
 }

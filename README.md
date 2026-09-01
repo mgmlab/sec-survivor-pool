@@ -93,21 +93,45 @@ static copy — so it can never go stale if the commissioner changes a rule
 mid-season. If you want to change the wording, edit `renderRulesSection()` in
 [`js/app.js`](js/app.js).
 
-## Full schedule / planning view
+## Full schedule / pick queue
 
-A fourth tab ("Schedule") shows every SEC team's full-season schedule at once,
-color-coded by opponent conference (SEC / other Power 4 / not Power 4) — useful
-for deciding which team to save for an easier week later. Tapping any team name
+A fourth tab ("Schedule") shows every SEC team's full-season schedule at once
+— school names only, no mascots, to fit more on screen — color-coded by
+opponent conference (SEC / other Power 4 / not Power 4). Tapping any team name
 (there, or the "Full schedule →" link on each pick-screen card, which works
-even on a team that's not currently pickable) opens that team's full week-by-week
-schedule with results as they come in. This is fetched directly from ESPN by
-the browser (read-only, no Firebase involved) and cached for the session —
-nothing to set up.
+even on a team that's not currently pickable) opens that team's full
+week-by-week schedule with results as they come in. This is fetched directly
+from ESPN by the browser (read-only, no Firebase involved) and cached for the
+session — nothing to set up, and it works for weeks the commissioner hasn't
+synced yet too (`weekDataFor()` in `js/app.js` falls back to the live schedule
+when a week isn't in `/weeks` yet).
+
+**It doubles as a pick queue.** For any week that hasn't locked, tap a cell to
+set your pick for that week — not just the current one. Queue picks for the
+whole season at once if you want; change your mind anytime before that week's
+lock, from either the queue or the Pick tab (they read/write the exact same
+data, so whichever you touch last wins). The same rules engine that greys out
+the Pick tab governs the queue, so a team already used — or queued — anywhere
+else in the season is disabled everywhere else too, with a tooltip explaining
+why. When a queued week becomes the current week, it just shows up pre-selected
+on the Pick tab, same as if you'd picked it that day. Locked/past weeks and
+eliminated participants get a read-only grid.
+
+This required generalizing `usageStatsFor()` in `js/eligibility.js`: it used to
+exclude "the current week and everything after" from the used-teams count
+(the only case that could ever happen, before queuing existed); it now
+excludes only the *one* week being edited, so a team queued for week 9 counts
+as used while you're deciding week 3, and vice versa.
 
 ## Running the pool week to week
 
 1. Open `admin.html`, unlock with the passphrase.
 2. Add each participant's name (they'll claim it themselves from `index.html`).
+   Each row shows whether they've picked yet for the current week, whether
+   they're online right now, and how long ago they were last seen (mirrors
+   the golf pool's `views`/`presence` pattern — one visit-log write per page
+   load, plus a live `presence/{uid}` entry that auto-removes on disconnect
+   via `onDisconnect()`).
 3. Set that week's start/end date range, click **Sync scores** to pull the
    schedule (lock time is auto-set to the earliest kickoff among that week's
    games — override it under "Reset lock time" if needed).

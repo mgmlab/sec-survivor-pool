@@ -7,7 +7,7 @@ import { autoPicksForWeek } from './autopick.js';
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-const S = { participants: {}, weeks: {}, picks: {}, config: {}, loaded: false };
+const S = { participants: {}, weeks: {}, picks: {}, config: {}, views: {}, presence: {}, loaded: false };
 const me = { identity: null, admin: false };
 
 const $ = id => document.getElementById(id);
@@ -37,6 +37,7 @@ firebase.auth().onAuthStateChanged(async u => {
   // listen here rather than at admin/authorized.
   db.ref('admin/authorized/' + u.uid).on('value', snap => {
     me.admin = !!snap.val();
+    subscribeAdminStats();
     render();
   });
 
@@ -53,6 +54,24 @@ for (const node of ['participants', 'weeks', 'picks', 'config']) {
     S.loaded = true;
     render();
   });
+}
+
+// views/presence are admin-only readable, so only subscribe once unlocked.
+let statsSubscribed = false;
+function subscribeAdminStats() {
+  if (statsSubscribed || !me.admin) return;
+  statsSubscribed = true;
+  db.ref('views').on('value', s => { S.views = s.val() || {}; render(); }, () => {});
+  db.ref('presence').on('value', s => { S.presence = s.val() || {}; render(); }, () => {});
+}
+
+function ago(ts) {
+  if (!ts) return '—';
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
 }
 
 async function unlock() {
@@ -309,15 +328,36 @@ function renderConfigSection() {
 
 function renderParticipantsSection() {
   const rows = Object.entries(S.participants || {});
+  const currentWeek = S.config.currentWeek || 1;
+
   return `<div class="admin-section">
     <h2>Participants</h2>
     <div class="admin-row">
       <input id="newParticipantName" placeholder="Full name">
       <button class="btn" id="addParticipantBtn">Add</button>
     </div>
-    ${rows.map(([pid, p]) => `
-      <div class="admin-row" style="justify-content:space-between;">
-        <span>${p.name} ${p.claimedBy ? '' : '<span class="muted">(unclaimed)</span>'} ${p.eliminatedWeek != null ? `<span class="badge-out">OUT W${p.eliminatedWeek}</span>` : ''}</span>
+    ${rows.map(([pid, p]) => {
+      const pick = S.picks?.[currentWeek]?.[pid];
+      const pickStatus = p.eliminatedWeek != null
+        ? ''
+        : pick
+          ? `<span class="pick-status-yes">✓ ${pick.team}${pick.autoPicked ? ' (auto)' : ''}</span>`
+          : `<span class="pick-status-no">no pick yet — Wk ${currentWeek}</span>`;
+
+      const uid = p.claimedBy;
+      const online = uid && S.presence?.[uid];
+      const lastSeen = uid ? S.views?.[uid]?.last : null;
+      const presenceLabel = !uid
+        ? ''
+        : online
+          ? '<span class="presence-online">● online</span>'
+          : `<span class="muted">last seen ${ago(lastSeen)}</span>`;
+
+      return `
+      <div class="admin-row" style="justify-content:space-between; flex-wrap:wrap;">
+        <span>${p.name} ${p.claimedBy ? '' : '<span class="muted">(unclaimed)</span>'} ${p.eliminatedWeek != null ? `<span class="badge-out">OUT W${p.eliminatedWeek}</span>` : ''}
+          ${pickStatus} ${presenceLabel}
+        </span>
         <span>
           ${p.claimedBy ? `<button class="btn secondary" data-unclaim="${pid}">Unclaim</button>` : ''}
           ${p.eliminatedWeek != null
@@ -325,7 +365,8 @@ function renderParticipantsSection() {
             : `<button class="btn secondary" data-eliminate="${pid}">Eliminate</button>`}
           <button class="btn danger" data-delete="${pid}">Remove</button>
         </span>
-      </div>`).join('')}
+      </div>`;
+    }).join('')}
   </div>`;
 }
 

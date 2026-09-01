@@ -26,6 +26,7 @@ function normalizeCompetitor(c) {
   return {
     abbr: c.team.abbreviation,
     name: c.team.displayName,
+    school: c.team.location, // e.g. "Ole Miss" vs displayName's "Ole Miss Rebels" — no mascot
     score: c.score === undefined || c.score === '' ? null : Number(c.score),
     winner: c.winner === true,
   };

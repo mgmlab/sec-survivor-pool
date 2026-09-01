@@ -37,9 +37,35 @@ firebase.auth().signInAnonymously().catch(() => {});
 firebase.auth().onAuthStateChanged(u => {
   me.identity = u ? u.uid : deviceId();
   resolveMyParticipant();
+  logVisit();
+  setupPresence();
   render();
 });
 if (!firebase.auth().currentUser) me.identity = deviceId();
+
+// ---- usage stats (admin-only visibility): one view log per page load + live presence ----
+let viewLogged = false;
+function logVisit() {
+  if (viewLogged || !me.identity) return;
+  viewLogged = true;
+  db.ref('views/' + me.identity).update({
+    count: firebase.database.ServerValue.increment(1),
+    last: firebase.database.ServerValue.TIMESTAMP,
+  }).catch(() => {});
+}
+
+let presenceFor = null;
+function setupPresence() {
+  if (!me.identity || presenceFor === me.identity || !firebase.auth().currentUser) return;
+  presenceFor = me.identity;
+  const ref = db.ref('presence/' + me.identity);
+  db.ref('.info/connected').on('value', s => {
+    if (s.val()) {
+      ref.onDisconnect().remove().catch(() => {});
+      ref.set(firebase.database.ServerValue.TIMESTAMP).catch(() => {});
+    }
+  });
+}
 
 for (const node of ['participants', 'weeks', 'picks', 'config']) {
   db.ref(node).on('value', snap => {
@@ -127,6 +153,7 @@ function teamScheduleRows(abbr) {
         date: new Date(g.kickoff),
         opponentAbbr: opp.abbr,
         opponentName: opp.name,
+        opponentSchool: opp.school,
         homeAway: isHome ? 'vs' : '@',
         completed: g.completed,
         result: g.completed ? `${g.away.score}-${g.home.score}` : null,
@@ -137,11 +164,49 @@ function teamScheduleRows(abbr) {
     .sort((a, b) => a.date - b.date);
 }
 
-async function submitPick(team) {
-  const currentWeek = S.config.currentWeek || 1;
-  const week = S.weeks[currentWeek];
-  if (isLocked(week)) { alert('Picks are locked for this week.'); return; }
-  await db.ref(`picks/${currentWeek}/${me.participantId}`).set({ team, pickedAt: Date.now() });
+/** School name only (no mascot) for a team, from live schedule data — falls back to the abbreviation if the schedule hasn't loaded yet. */
+function schoolNameFor(abbr) {
+  if (!seasonSchedule?.length) return abbr;
+  const g = seasonSchedule.find(g => g.home.abbr === abbr || g.away.abbr === abbr);
+  if (!g) return abbr;
+  return g.home.abbr === abbr ? g.home.school : g.away.school;
+}
+
+// Returns { games, lockTime, status } for any week number, even ones the
+// commissioner hasn't set up in admin yet — falls back to a lock time and
+// game list derived straight from the live season schedule, so the queue
+// (Schedule tab) works for future weeks without waiting on admin sync.
+// Admin-synced weeks (S.weeks[n]) are always preferred when present, since
+// they carry real-time results and any manual overrides.
+function weekDataFor(n) {
+  if (S.weeks[n]) return S.weeks[n];
+  if (!seasonSchedule?.length) return null;
+  const startMs = seasonStartMs();
+  const games = seasonSchedule.filter(g => weekNumberFor(g.kickoff, startMs) === n);
+  if (!games.length) return null;
+  const gamesById = Object.fromEntries(games.map(g => [g.id, g]));
+  const lockTime = Math.min(...games.map(g => new Date(g.kickoff).getTime()));
+  return { games: gamesById, lockTime, status: 'upcoming' };
+}
+
+// A merged /weeks-shaped map covering every week number that has a pick
+// (including future queued ones) plus whichever weeks the caller also needs
+// (e.g. the grid's visible columns) — so usageStatsFor's cross-week opponent
+// lookups work even for weeks admin hasn't synced yet.
+function mergedWeeksFor(extraWeekNumbers = []) {
+  const weekNumbers = new Set([
+    ...Object.keys(S.picks || {}).map(Number),
+    ...extraWeekNumbers,
+  ]);
+  const merged = {};
+  for (const n of weekNumbers) merged[n] = weekDataFor(n);
+  return merged;
+}
+
+async function submitPick(team, weekNumber = S.config.currentWeek || 1) {
+  const week = weekDataFor(weekNumber);
+  if (isLocked(week)) { alert(`Picks are locked for week ${weekNumber}.`); return; }
+  await db.ref(`picks/${weekNumber}/${me.participantId}`).set({ team, pickedAt: Date.now() });
 }
 
 const TABS = ['pick', 'standings', 'history', 'schedule'];
@@ -162,12 +227,13 @@ function render() {
     <div id="tab-pick" class="tab-panel ${ui.activeTab === 'pick' ? '' : 'hidden'}">${renderPickScreen(participant)}</div>
     <div id="tab-standings" class="tab-panel ${ui.activeTab === 'standings' ? '' : 'hidden'}">${renderStandings()}</div>
     <div id="tab-history" class="tab-panel ${ui.activeTab === 'history' ? '' : 'hidden'}">${renderHistory()}</div>
-    <div id="tab-schedule" class="tab-panel ${ui.activeTab === 'schedule' ? '' : 'hidden'}">${renderScheduleTab()}</div>
+    <div id="tab-schedule" class="tab-panel ${ui.activeTab === 'schedule' ? '' : 'hidden'}">${renderScheduleTab(participant)}</div>
     ${renderScheduleModal()}
   `;
   wireTabs();
   wirePickButtons();
   wireScheduleLinks();
+  wireQueuePicks();
   wireRulesSection();
 }
 
@@ -242,7 +308,7 @@ function renderPickScreen(participant) {
   }
 
   const currentWeek = S.config.currentWeek || 1;
-  const week = S.weeks[currentWeek];
+  const week = weekDataFor(currentWeek);
   const myPick = S.picks?.[currentWeek]?.[me.participantId]?.team;
   const locked = isLocked(week);
 
@@ -255,7 +321,7 @@ function renderPickScreen(participant) {
     : 'TBD';
 
   const evaluated = evaluateTeamsForWeek({
-    week, picks: S.picks, weeks: S.weeks, currentWeek, pid: me.participantId, config: S.config, myPick,
+    week, picks: S.picks, weeks: mergedWeeksFor(), weekNumber: currentWeek, pid: me.participantId, config: S.config, myPick,
   });
 
   const cards = evaluated.map(t => {
@@ -335,12 +401,13 @@ function renderHistory() {
   </table></div>`;
 }
 
-function renderScheduleTab() {
+function renderScheduleTab(participant) {
   if (!seasonSchedule && !seasonScheduleLoading && !seasonScheduleError) ensureSeasonSchedule();
   if (seasonScheduleLoading) return '<p class="muted">Loading full season schedule…</p>';
   if (seasonScheduleError) return `<p class="err">Couldn't load schedule: ${seasonScheduleError}</p>`;
   if (!seasonSchedule?.length) return '<p class="muted">No schedule data available.</p>';
 
+  const canQueue = participant?.eliminatedWeek == null;
   const startMs = seasonStartMs();
   const weekDateLabel = {};
   for (const g of seasonSchedule) {
@@ -349,17 +416,42 @@ function renderScheduleTab() {
     if (!weekDateLabel[wn] || d < weekDateLabel[wn]) weekDateLabel[wn] = d;
   }
   const weekNums = Object.keys(weekDateLabel).map(Number).sort((a, b) => a - b);
+  const allWeeks = mergedWeeksFor(weekNums);
+
+  // Evaluate eligibility once per week (not per cell) — same rules engine the
+  // Pick tab uses, so the queue can never disagree with what's actually pickable.
+  const evalByWeek = {};
+  for (const wn of weekNums) {
+    const week = allWeeks[wn];
+    const myPick = S.picks?.[wn]?.[me.participantId]?.team;
+    evalByWeek[wn] = {
+      locked: isLocked(week),
+      byAbbr: Object.fromEntries(
+        evaluateTeamsForWeek({ week, picks: S.picks, weeks: allWeeks, weekNumber: wn, pid: me.participantId, config: S.config, myPick })
+          .map(t => [t.abbr, t])
+      ),
+    };
+  }
 
   const rows = SEC_TEAMS.map(team => {
-    const byWeek = Object.fromEntries(teamScheduleRows(team.abbr).map(r => [r.weekNum, r]));
     return `<tr>
-      <td class="schedule-team-name" data-schedule-team="${team.abbr}">${team.name}</td>
+      <td class="schedule-team-name" data-schedule-team="${team.abbr}">${schoolNameFor(team.abbr)}</td>
       ${weekNums.map(wn => {
-        const r = byWeek[wn];
-        if (!r) return '<td class="muted">BYE</td>';
-        const confClass = r.opponentConf === 'SEC' ? 'conf-sec' : (r.opponentConf ? 'conf-power4' : 'conf-none');
-        const resultMark = r.completed ? (r.won ? ' W' : ' L') : '';
-        return `<td class="${confClass}">${r.homeAway}${r.opponentAbbr}${resultMark}</td>`;
+        const t = evalByWeek[wn].byAbbr[team.abbr];
+        if (!t.game) return '<td class="muted">BYE</td>';
+
+        const isHome = t.game.home.abbr === team.abbr;
+        const opp = isHome ? t.game.away : t.game.home;
+        const confClass = t.opponentConf === 'SEC' ? 'conf-sec' : (t.opponentConf ? 'conf-power4' : 'conf-none');
+        const resultMark = t.game.completed ? (t.game.winnerAbbr === team.abbr ? ' W' : ' L') : '';
+        const label = `${isHome ? 'vs' : '@'}${opp.school}${resultMark}`;
+
+        if (!canQueue || evalByWeek[wn].locked) {
+          return `<td class="${confClass}">${label}</td>`;
+        }
+        const cellClass = [confClass, t.selected ? 'queue-selected' : '', t.disabled ? 'queue-disabled' : 'queue-pickable'].filter(Boolean).join(' ');
+        const title = t.disabled && !t.selected ? t.flag : '';
+        return `<td class="${cellClass}" data-queue-pick="${wn}:${team.abbr}" ${title ? `title="${title}"` : ''}>${label}</td>`;
       }).join('')}
     </tr>`;
   }).join('');
@@ -368,7 +460,9 @@ function renderScheduleTab() {
     <p class="muted schedule-legend">
       <span class="conf-sec">SEC opponent</span> &nbsp;
       <span class="conf-power4">Power 4</span> &nbsp;
-      <span class="conf-none">not Power 4</span> — tap a team name for their full schedule.
+      <span class="conf-none">not Power 4</span><br>
+      Tap a team name for their full schedule.
+      ${canQueue ? ' Tap a cell in an unlocked week to queue your pick for that week — change your mind anytime before it locks, here or on the Pick tab.' : ''}
     </p>
     <div class="history-scroll"><table class="schedule-grid-table">
       <thead><tr><th>Team</th>${weekNums.map(wn => `<th>Wk ${wn}<br><span class="muted">${weekDateLabel[wn].toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })}</span></th>`).join('')}</tr></thead>
@@ -381,7 +475,7 @@ function renderScheduleModal() {
   const abbr = ui.openScheduleTeam;
   if (!abbr) return '<div id="scheduleModal" class="modal-overlay hidden"></div>';
 
-  const team = SEC_TEAMS.find(t => t.abbr === abbr);
+  const teamLabel = schoolNameFor(abbr);
   let body;
   if (seasonScheduleLoading) {
     body = '<p class="muted">Loading…</p>';
@@ -395,7 +489,7 @@ function renderScheduleModal() {
           <tbody>${rows.map(r => `<tr>
             <td>${r.weekNum}</td>
             <td>${r.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</td>
-            <td>${r.homeAway} ${r.opponentName}${!r.opponentConf ? ' <span class="muted">(not P4)</span>' : (r.opponentConf === 'SEC' ? ' <span class="muted">(SEC)</span>' : '')}</td>
+            <td>${r.homeAway} ${r.opponentSchool}${!r.opponentConf ? ' <span class="muted">(not P4)</span>' : (r.opponentConf === 'SEC' ? ' <span class="muted">(SEC)</span>' : '')}</td>
             <td>${r.completed ? `${r.won ? 'W' : 'L'} ${r.result}` : '—'}</td>
           </tr>`).join('')}</tbody>
         </table>`
@@ -405,7 +499,7 @@ function renderScheduleModal() {
   return `<div id="scheduleModal" class="modal-overlay">
     <div class="modal-box">
       <div class="modal-header">
-        <h3>${team?.name || abbr}</h3>
+        <h3>${teamLabel}</h3>
         <button class="modal-close" id="modalCloseBtn">&times;</button>
       </div>
       ${body}
@@ -444,4 +538,13 @@ function wireScheduleLinks() {
       if (e.target === overlay) { ui.openScheduleTeam = null; render(); }
     });
   }
+}
+
+function wireQueuePicks() {
+  document.querySelectorAll('[data-queue-pick]').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const [wn, abbr] = cell.dataset.queuePick.split(':');
+      submitPick(abbr, Number(wn));
+    });
+  });
 }

@@ -28,7 +28,7 @@ export function autoPicksForWeek({ week, weekNumber, picks, weeks, participants,
     if (participant.eliminatedWeek != null) continue;
     if (picksForWeek[pid]?.team) continue;
 
-    const eligible = eligibleTeamsFor({ week, picks, weeks, currentWeek: weekNumber, pid, config });
+    const eligible = eligibleTeamsFor({ week, picks, weeks, weekNumber, pid, config });
     if (!eligible.length) {
       assignments[pid] = null;
       continue;

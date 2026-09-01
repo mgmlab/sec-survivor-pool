@@ -24,6 +24,20 @@
       }
     },
 
+    "views": {
+      ".read": "auth != null && root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val()",
+      "$uid": {
+        ".write": "auth != null && $uid === auth.uid"
+      }
+    },
+
+    "presence": {
+      ".read": "auth != null && root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val()",
+      "$uid": {
+        ".write": "auth != null && $uid === auth.uid"
+      }
+    },
+
     "config": {
       ".read": "auth != null",
       ".write": "auth != null && root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val()"
