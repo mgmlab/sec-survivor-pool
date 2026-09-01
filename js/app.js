@@ -3,6 +3,45 @@ import { conferenceOf } from '../data-source/power4-teams.js';
 import { fetchGames } from '../data-source/provider.js';
 import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked } from './eligibility.js';
 
+// ---- on-device diagnostics ----
+// Three fix attempts guessed at plausible browser mechanisms (scroll
+// restoration, rAF-in-background-tabs, bfcache, scroll anchoring) and none
+// of them were confirmed against the real device — plus a report of the
+// whole page hanging on "Loading…" once, which is a different and more
+// concerning symptom. Rather than guess a fifth mechanism blind, this logs
+// a real timeline (script start, auth, each Firebase listener's first
+// response, every render(), every scroll event, pageshow/visibilitychange)
+// to an on-screen panel, visible by adding ?debug=1 to the URL — so the
+// next report can be "here's the actual log" instead of another guess.
+const DEBUG = location.search.includes('debug');
+const debugLog = [];
+function dlog(msg) {
+  if (!DEBUG) return;
+  const t = (performance.now() / 1000).toFixed(2);
+  debugLog.push(`${t}s  ${msg}`);
+  if (debugLog.length > 200) debugLog.shift();
+  renderDebugPanel();
+}
+function renderDebugPanel() {
+  if (!DEBUG) return;
+  let el = document.getElementById('debugPanel');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'debugPanel';
+    el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:45vh;overflow:auto;background:rgba(0,0,0,0.92);color:#0f0;font-size:10px;font-family:monospace;padding:6px;z-index:999999;white-space:pre-wrap;border-top:2px solid #0f0;';
+    document.documentElement.appendChild(el);
+  }
+  el.textContent = debugLog.join('\n');
+}
+if (DEBUG) {
+  dlog(`script start — visibilityState=${document.visibilityState} scrollY=${window.scrollY} readyState=${document.readyState}`);
+  window.addEventListener('pageshow', e => dlog(`pageshow — persisted=${e.persisted} scrollY=${window.scrollY}`));
+  window.addEventListener('visibilitychange', () => dlog(`visibilitychange — visibilityState=${document.visibilityState} scrollY=${window.scrollY}`));
+  window.addEventListener('scroll', () => dlog(`scroll event — scrollY=${window.scrollY}`));
+  window.addEventListener('error', e => dlog(`ERROR — ${e.message} @ ${e.filename}:${e.lineno}`));
+  window.addEventListener('unhandledrejection', e => dlog(`UNHANDLED REJECTION — ${e.reason?.message || e.reason}`));
+}
+
 // Mobile browsers sometimes restore a previous scroll position (or drift
 // from one) when reopening a tab, or when the page's content height jumps
 // (e.g. the short claim screen -> the much taller Pick screen right after
@@ -14,10 +53,11 @@ if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
 
 function forceScrollTop() {
+  dlog(`forceScrollTop() called — scrollY=${window.scrollY}`);
   window.scrollTo(0, 0);
-  setTimeout(() => window.scrollTo(0, 0), 0);
-  setTimeout(() => window.scrollTo(0, 0), 100);
-  setTimeout(() => window.scrollTo(0, 0), 400);
+  setTimeout(() => { window.scrollTo(0, 0); dlog(`  +0ms scrollY=${window.scrollY}`); }, 0);
+  setTimeout(() => { window.scrollTo(0, 0); dlog(`  +100ms scrollY=${window.scrollY}`); }, 100);
+  setTimeout(() => { window.scrollTo(0, 0); dlog(`  +400ms scrollY=${window.scrollY}`); }, 400);
 }
 
 // "Close the tab, reopen the link" restoring an old scroll position is very
@@ -61,8 +101,12 @@ function deviceId() {
   return id;
 }
 
-firebase.auth().signInAnonymously().catch(() => {});
+dlog('calling signInAnonymously()');
+firebase.auth().signInAnonymously()
+  .then(() => dlog('signInAnonymously() resolved'))
+  .catch(e => dlog(`signInAnonymously() REJECTED — ${e.code} ${e.message}`));
 firebase.auth().onAuthStateChanged(u => {
+  dlog(`onAuthStateChanged — uid=${u?.uid || '(none, using deviceId fallback)'}`);
   me.identity = u ? u.uid : deviceId();
   resolveMyParticipant();
   logVisit();
@@ -96,11 +140,20 @@ function setupPresence() {
 }
 
 for (const node of ['participants', 'weeks', 'picks', 'config']) {
+  let firstFire = true;
   db.ref(node).on('value', snap => {
+    if (firstFire) { dlog(`${node} listener fired (first time)`); firstFire = false; }
     S[node] = snap.val() || {};
     S.loaded = true;
     if (node === 'participants') resolveMyParticipant();
     render();
+  }, err => {
+    // No error callback here before meant a permission-denied (or any other
+    // read error) failed completely silently — S.loaded would never become
+    // true and the page would hang on "Loading…" forever with zero trace of
+    // why. That matches a reported one-time hang closely enough to be worth
+    // fixing regardless of whether it's the scroll issue's cause too.
+    dlog(`${node} listener ERROR — ${err.code || ''} ${err.message}`);
   });
 }
 
@@ -250,8 +303,9 @@ async function submitPick(team, weekNumber = S.config.currentWeek || 1) {
 const TABS = ['pick', 'schedule', 'standings', 'history'];
 
 function render() {
-  if (!S.loaded) return;
+  if (!S.loaded) { dlog('render() called but S.loaded=false, bailing'); return; }
   if (!me.participantId) return renderClaimScreen();
+  dlog(`render() (Pick screen) — participantId=${me.participantId} scrollY-before=${window.scrollY}`);
   const participant = S.participants[me.participantId];
   $('app').innerHTML = `
     ${renderHeader(participant)}
@@ -346,6 +400,7 @@ function renderRulesSection() {
 }
 
 function renderClaimScreen() {
+  dlog(`renderClaimScreen() — scrollY-before=${window.scrollY}`);
   const unclaimed = Object.entries(S.participants || {}).filter(([, p]) => !p.claimedBy);
   $('app').innerHTML = `
     <header class="app-header"><h1>${S.config.poolName || 'SEC Survivor Pool'}</h1></header>
