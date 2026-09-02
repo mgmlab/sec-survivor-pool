@@ -501,6 +501,18 @@ function render() {
   if (!me.participantId) return renderClaimScreen();
   dlog(`render() (Pick screen) — participantId=${me.participantId} scrollY-before=${window.scrollY}`);
   const participant = S.participants[me.participantId];
+
+  // Tapping a cell in the Schedule tab's queue writes to Firebase, whose
+  // picks listener fires straight back into this same render(), which
+  // rebuilds #app's innerHTML from scratch — including the Schedule and
+  // History grids' own horizontally-scrolling wrapper. Without restoring it,
+  // that reset the grid to its Week 1 column on every tap, which looked like
+  // your click had "jumped you back" instead of just registering the pick.
+  const scrollLeftByTab = {};
+  document.querySelectorAll('.tab-panel .history-scroll').forEach(el => {
+    scrollLeftByTab[el.closest('.tab-panel').id] = el.scrollLeft;
+  });
+
   $('app').innerHTML = `
     ${renderHeader(participant)}
     ${renderRulesSection()}
@@ -520,8 +532,13 @@ function render() {
   wirePickButtons();
   wireScheduleLinks();
   wireQueuePicks();
+  wireClearPicksBtn();
   wireRulesSection();
   wireHeader();
+  document.querySelectorAll('.tab-panel .history-scroll').forEach(el => {
+    const saved = scrollLeftByTab[el.closest('.tab-panel').id];
+    if (saved) el.scrollLeft = saved;
+  });
   ensureScrolledToTop(me.participantId);
 }
 
@@ -862,6 +879,14 @@ function renderScheduleTab(participant) {
     </tr>`;
   }).join('');
 
+  // Only weeks after the current one — clearing your already-made current-week
+  // pick is a different, riskier action (there's already a dedicated way to do
+  // that: tap your own pick again). This is just for undoing ones queued ahead.
+  const currentWeek = S.config.currentWeek || 1;
+  const futureQueuedWeeks = weekNums.filter(wn =>
+    wn > currentWeek && !evalByWeek[wn].locked && S.picks?.[wn]?.[me.participantId]?.team
+  );
+
   return `
     <p class="muted schedule-legend">
       <span class="conf-sec">SEC opponent</span> &nbsp;
@@ -874,6 +899,9 @@ function renderScheduleTab(participant) {
       <thead><tr><th>Team</th>${weekNums.map(wn => `<th>Wk ${wn}<br><span class="muted">${weekDateLabel[wn].toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })}</span></th>`).join('')}</tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
+    ${futureQueuedWeeks.length
+      ? `<p class="schedule-link" id="clearPicksBtn" data-clear-weeks="${futureQueuedWeeks.join(',')}">Clear queued pick${futureQueuedWeeks.length > 1 ? 's' : ''} (Week${futureQueuedWeeks.length > 1 ? 's' : ''} ${futureQueuedWeeks.join(', ')})</p>`
+      : ''}
   `;
 }
 
@@ -953,4 +981,18 @@ function wireQueuePicks() {
       submitPick(abbr, Number(wn));
     });
   });
+}
+
+async function clearQueuedPicks(weeks) {
+  const label = weeks.length > 1 ? `weeks ${weeks.join(', ')}` : `week ${weeks[0]}`;
+  if (!confirm(`Clear your queued pick${weeks.length > 1 ? 's' : ''} for ${label}? You can re-pick anytime before each one locks.`)) return;
+  const updates = {};
+  for (const wn of weeks) updates[`picks/${wn}/${me.participantId}`] = null;
+  await db.ref().update(updates);
+}
+
+function wireClearPicksBtn() {
+  const btn = $('clearPicksBtn');
+  if (!btn) return;
+  btn.addEventListener('click', () => clearQueuedPicks(btn.dataset.clearWeeks.split(',').map(Number)));
 }
