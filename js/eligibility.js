@@ -3,12 +3,13 @@
 // and the cron script's auto-pick step (scripts/fetch-results.mjs), so all
 // three can never disagree about which teams are legal to pick.
 import { SEC_TEAMS, isSecTeam } from '../data-source/teams.js';
-import { conferenceOf, ALL_CONFERENCES } from '../data-source/power4-teams.js';
+import { conferenceOf, ALL_CONFERENCES, DEFAULT_ELIGIBLE_CONFERENCES } from '../data-source/power4-teams.js';
 
 export const RULE_DEFAULTS = {
   maxTeamUses: 1,
   maxSecOpponentPicks: 2,
-  eligibleConferences: Object.fromEntries(ALL_CONFERENCES.map(c => [c, true])),
+  maxLosses: 1,
+  eligibleConferences: Object.fromEntries(ALL_CONFERENCES.map(c => [c, DEFAULT_ELIGIBLE_CONFERENCES.includes(c)])),
 };
 
 export function isLocked(week) {

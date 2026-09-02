@@ -1,5 +1,5 @@
 import { fetchGames } from '../data-source/provider.js';
-import { computeEliminations } from './elimination.js';
+import { computeEliminations, lossCountFor } from './elimination.js';
 import { ALL_CONFERENCES } from '../data-source/power4-teams.js';
 import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js';
 import { autoPicksForWeek } from './autopick.js';
@@ -145,7 +145,7 @@ async function addParticipant() {
   const name = $('newParticipantName').value.trim();
   if (!name) return;
   const id = slugify(name);
-  await db.ref('participants/' + id).set({ name, claimedBy: null, eliminatedWeek: null, eliminatedReason: null });
+  await db.ref('participants/' + id).set({ name, claimedBy: null, eliminatedWeek: null, eliminatedReason: null, losses: null });
   $('newParticipantName').value = '';
 }
 
@@ -163,11 +163,15 @@ async function setEliminatedManually(pid) {
   if (!week) return;
   const reason = prompt('Reason (shown to the group):', 'Commissioner override') || 'Commissioner override';
   await db.ref(`participants/${pid}`).update({ eliminatedWeek: week, eliminatedReason: reason });
+  await db.ref(`participants/${pid}/losses/${week}`).set(reason);
 }
 
+// Clears loss history along with the elimination flag — a reinstated
+// participant starts this rule back at zero rather than one loss away
+// from being eliminated again.
 async function reinstateParticipant(pid) {
-  if (!confirm('Reinstate this participant (undo elimination)?')) return;
-  await db.ref(`participants/${pid}`).update({ eliminatedWeek: null, eliminatedReason: null });
+  if (!confirm('Reinstate this participant (undo elimination and clear their loss count)?')) return;
+  await db.ref(`participants/${pid}`).update({ eliminatedWeek: null, eliminatedReason: null, losses: null });
 }
 
 async function deleteParticipant(pid) {
@@ -271,8 +275,13 @@ async function runAutoPickIfNeeded(n) {
       pickUpdates[`picks/${n}/${pid}`] = pick;
       merged[pid] = pick;
     } else {
+      // Running out of legal teams is structural, not a game loss — it
+      // eliminates outright regardless of how many losses config.maxLosses
+      // allows, since there's no team left to even attempt a pick with.
+      const reason = 'No eligible teams remained for auto-pick';
       elimUpdates[`participants/${pid}/eliminatedWeek`] = n;
-      elimUpdates[`participants/${pid}/eliminatedReason`] = 'No eligible teams remained for auto-pick';
+      elimUpdates[`participants/${pid}/eliminatedReason`] = reason;
+      elimUpdates[`participants/${pid}/losses/${n}`] = reason;
     }
   }
   if (Object.keys(pickUpdates).length) await db.ref().update(pickUpdates);
@@ -284,14 +293,27 @@ async function runAutoPickIfNeeded(n) {
 async function runEliminations(n) {
   const picksForWeek = await runAutoPickIfNeeded(n);
   const week = S.weeks[n];
-  const preview = computeEliminations(week, picksForWeek, S.participants, n, S.config.noPickPolicy || 'eliminate');
-  const names = Object.keys(preview).map(pid => `${S.participants[pid]?.name}: ${preview[pid].eliminatedReason}`);
-  if (!names.length) { alert('No new eliminations for week ' + n + '.'); return; }
-  if (!confirm(`Eliminate:\n\n${names.join('\n')}\n\nApply?`)) return;
+  const maxLosses = S.config.maxLosses ?? RULE_DEFAULTS.maxLosses;
+  const { newlyEliminated, newLosses } = computeEliminations(
+    week, picksForWeek, S.participants, n, S.config.noPickPolicy || 'eliminate', maxLosses
+  );
+  const elimLines = Object.keys(newlyEliminated).map(
+    pid => `${S.participants[pid]?.name}: ELIMINATED — ${newlyEliminated[pid].eliminatedReason}`
+  );
+  const lossLines = Object.keys(newLosses).map(
+    pid => `${S.participants[pid]?.name}: loss recorded (${lossCountFor(S.participants[pid]) + 1}/${maxLosses}) — ${newLosses[pid].reason}`
+  );
+  const lines = [...elimLines, ...lossLines];
+  if (!lines.length) { alert('No changes for week ' + n + '.'); return; }
+  if (!confirm(`${lines.join('\n')}\n\nApply?`)) return;
   const updates = {};
-  for (const [pid, info] of Object.entries(preview)) {
+  for (const [pid, info] of Object.entries(newlyEliminated)) {
     updates[`participants/${pid}/eliminatedWeek`] = info.eliminatedWeek;
     updates[`participants/${pid}/eliminatedReason`] = info.eliminatedReason;
+    updates[`participants/${pid}/losses/${n}`] = info.eliminatedReason;
+  }
+  for (const [pid, info] of Object.entries(newLosses)) {
+    updates[`participants/${pid}/losses/${n}`] = info.reason;
   }
   await db.ref().update(updates);
 }
@@ -314,6 +336,7 @@ async function saveConfig() {
     noPickPolicy: $('noPickPolicy').value,
     maxTeamUses: Number($('maxTeamUses').value) || 1,
     maxSecOpponentPicks: Number($('maxSecOpponentPicks').value) || 0,
+    maxLosses: Number($('maxLosses').value) || 1,
     eligibleConferences,
   });
 }
@@ -377,6 +400,7 @@ async function logout() {
 function renderConfigSection() {
   const maxTeamUses = S.config.maxTeamUses ?? RULE_DEFAULTS.maxTeamUses;
   const maxSecOpponentPicks = S.config.maxSecOpponentPicks ?? RULE_DEFAULTS.maxSecOpponentPicks;
+  const maxLosses = S.config.maxLosses ?? RULE_DEFAULTS.maxLosses;
   const eligibleConferences = S.config.eligibleConferences || RULE_DEFAULTS.eligibleConferences;
 
   return `<div class="admin-section">
@@ -408,6 +432,11 @@ function renderConfigSection() {
       times per season (no cap on different opponents)</label>
     </div>
     <div class="admin-row">
+      <label>Eliminated after
+        <input id="maxLosses" type="number" min="1" style="width:3.5rem" value="${maxLosses}">
+      loss${maxLosses === 1 ? '' : 'es'} this season (1 = out on the first loss, same as before this was configurable)</label>
+    </div>
+    <div class="admin-row">
       <span style="width:100%;">Eligible opponent conferences:</span>
       ${ALL_CONFERENCES.map(c => `
         <label style="display:inline-flex;align-items:center;gap:0.25rem;">
@@ -423,6 +452,7 @@ function renderConfigSection() {
 function renderParticipantsSection() {
   const rows = Object.entries(S.participants || {});
   const currentWeek = S.config.currentWeek || 1;
+  const maxLosses = S.config.maxLosses ?? RULE_DEFAULTS.maxLosses;
 
   return `<div class="admin-section">
     <h2>Participants</h2>
@@ -447,9 +477,14 @@ function renderParticipantsSection() {
           ? '<span class="presence-online">● online</span>'
           : `<span class="muted">last seen ${ago(lastSeen)}</span>`;
 
+      const losses = lossCountFor(p);
+      const lossBadge = p.eliminatedWeek == null && losses > 0
+        ? `<span class="badge-warn">${losses}/${maxLosses} losses</span>`
+        : '';
+
       return `
       <div class="admin-row" style="justify-content:space-between; flex-wrap:wrap;">
-        <span>${p.name} ${p.claimedBy ? '' : '<span class="muted">(unclaimed)</span>'} ${p.eliminatedWeek != null ? `<span class="badge-out">OUT W${p.eliminatedWeek}</span>` : ''}
+        <span>${p.name} ${p.claimedBy ? '' : '<span class="muted">(unclaimed)</span>'} ${p.eliminatedWeek != null ? `<span class="badge-out">OUT W${p.eliminatedWeek}</span>` : lossBadge}
           ${pickStatus} ${presenceLabel}
         </span>
         <span>

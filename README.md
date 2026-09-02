@@ -46,7 +46,7 @@ aggressively otherwise.
 
 ## Pick rules
 
-All three are enforced client-side in the pick screen and adjustable anytime
+All are enforced client-side in the pick screen and adjustable anytime
 from admin's **Pool settings** (defaults shown):
 
 - **Each team usable up to `maxTeamUses` times per season** (default **1** —
@@ -55,12 +55,18 @@ from admin's **Pool settings** (defaults shown):
   (default **2**) — an SEC-vs-SEC matchup only counts against this cap once
   its week locks, so switching an in-progress pick before lock never burns it.
 - **Opponent must belong to an eligible conference** (default: **SEC, ACC,
-  Big 12, Big Ten** — i.e. Power 4 only). A team whose only game that week is
-  against a Group-of-5/FCS opponent shows as ineligible, not pickable, even
+  Big 12, Big Ten** — i.e. Power 4 only; Mountain West and Pac-12 are also
+  available but off by default). A team whose only game that week is against
+  an ineligible conference's opponent shows as ineligible, not pickable, even
   though it's not technically a bye. Toggle conferences individually in admin
   if the group wants to loosen or tighten this later.
+- **Eliminated after `maxLosses` losses in a season** (default **1** — a
+  single loss ends your run, the original rule). Set higher to give everyone
+  a cushion of forgiven losses before elimination; a participant's running
+  loss count is tracked at `participants/{id}/losses` (one entry per losing
+  week) even while they're still alive under the cap.
 
-Conference membership for all 67 Power-4 teams lives in
+Conference membership for every team an SEC opponent could belong to lives in
 [`data-source/power4-teams.js`](data-source/power4-teams.js), harvested live
 from ESPN rather than hand-typed — regenerate it the same way (fetch each
 conference's `groups=` scoreboard across a full season, keep only

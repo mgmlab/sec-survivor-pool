@@ -2,6 +2,7 @@ import { SEC_TEAMS } from '../data-source/teams.js';
 import { conferenceOf } from '../data-source/power4-teams.js';
 import { fetchGames } from '../data-source/provider.js';
 import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js';
+import { lossCountFor } from './elimination.js';
 
 // ---- on-device diagnostics ----
 // Three fix attempts guessed at plausible browser mechanisms (scroll
@@ -537,10 +538,17 @@ function wireRulesSection() {
 }
 
 function renderHeader(participant) {
+  const maxLosses = S.config.maxLosses ?? RULE_DEFAULTS.maxLosses;
+  const losses = participant ? lossCountFor(participant) : 0;
+  const statusBadge = participant?.eliminatedWeek != null
+    ? ' <span class="badge-out">ELIMINATED</span>'
+    : losses > 0
+      ? ` <span class="badge-warn">${losses}/${maxLosses} losses</span>`
+      : '';
   return `<header class="app-header">
     <h1>${S.config.poolName || 'SEC Survivor Pool'}</h1>
     <div class="me-wrap">
-      <button class="me-name" id="meNameBtn">${participant?.name || ''}${participant?.eliminatedWeek != null ? ' <span class="badge-out">ELIMINATED</span>' : ''}</button>
+      <button class="me-name" id="meNameBtn">${participant?.name || ''}${statusBadge}</button>
       <div class="me-menu hidden" id="meMenu">
         <button class="btn secondary" id="unclaimSelfBtn">Sign out</button>
       </div>
@@ -571,6 +579,7 @@ function wireHeader() {
 function renderRulesSection() {
   const maxTeamUses = S.config.maxTeamUses ?? RULE_DEFAULTS.maxTeamUses;
   const maxSecOpponentPicks = S.config.maxSecOpponentPicks ?? RULE_DEFAULTS.maxSecOpponentPicks;
+  const maxLosses = S.config.maxLosses ?? RULE_DEFAULTS.maxLosses;
   const eligibleConferences = S.config.eligibleConferences || RULE_DEFAULTS.eligibleConferences;
   const enabledConfs = Object.entries(eligibleConferences).filter(([, v]) => v).map(([c]) => c);
   const noPickPolicy = S.config.noPickPolicy || 'eliminate';
@@ -585,7 +594,10 @@ function renderRulesSection() {
     <summary>Rules &amp; how to play</summary>
     <div class="rules-body">
       <ul>
-        <li>Each week, pick one SEC team you think will win. If they lose (or tie), you're eliminated.</li>
+        <li>Each week, pick one SEC team you think will win.</li>
+        <li>${maxLosses === 1
+          ? "If your team loses (or ties), you're eliminated."
+          : `You're eliminated once your team has lost (or tied) <strong>${maxLosses}</strong> times this season — your first ${maxLosses - 1} loss${maxLosses - 1 === 1 ? '' : 'es'} won't knock you out.`}</li>
         <li>Last participant(s) still alive win the pool.</li>
         <li>Each team can be picked up to <strong>${maxTeamUses}</strong> time${maxTeamUses === 1 ? '' : 's'} all season.</li>
         <li>You can play against the same SEC opponent up to <strong>${maxSecOpponentPicks}</strong> time${maxSecOpponentPicks === 1 ? '' : 's'} all season — no cap on how many <em>different</em> SEC opponents you face, just on repeating the same one.</li>
@@ -652,9 +664,10 @@ function renderClaimScreen() {
 
 function renderPickScreen(participant) {
   if (participant?.eliminatedWeek != null) {
+    const maxLosses = S.config.maxLosses ?? RULE_DEFAULTS.maxLosses;
     return `<div class="eliminated-panel">
       <p>You were eliminated in Week ${participant.eliminatedWeek}.</p>
-      <p class="muted">${participant.eliminatedReason || ''}</p>
+      <p class="muted">${participant.eliminatedReason || ''}${maxLosses > 1 ? ` (${maxLosses}/${maxLosses} losses)` : ''}</p>
     </div>`;
   }
 
@@ -730,6 +743,7 @@ function renderPickScreen(participant) {
 }
 
 function renderStandings() {
+  const maxLosses = S.config.maxLosses ?? RULE_DEFAULTS.maxLosses;
   const rows = Object.entries(S.participants || {})
     .filter(([, p]) => p.claimedBy)
     .sort(([, a], [, b]) => {
@@ -741,10 +755,18 @@ function renderStandings() {
   return `<table class="standings-table">
     <thead><tr><th>Name</th><th>Status</th></tr></thead>
     <tbody>
-      ${rows.map(([, p]) => `<tr class="${p.eliminatedWeek != null ? 'row-out' : 'row-alive'}">
+      ${rows.map(([, p]) => {
+        const losses = lossCountFor(p);
+        const status = p.eliminatedWeek != null
+          ? `Out — Week ${p.eliminatedWeek}`
+          : maxLosses > 1 && losses > 0
+            ? `Alive (${losses}/${maxLosses} losses)`
+            : 'Alive';
+        return `<tr class="${p.eliminatedWeek != null ? 'row-out' : 'row-alive'}">
         <td>${p.name}</td>
-        <td>${p.eliminatedWeek != null ? `Out — Week ${p.eliminatedWeek}` : 'Alive'}</td>
-      </tr>`).join('')}
+        <td>${status}</td>
+      </tr>`;
+      }).join('')}
     </tbody>
   </table>`;
 }

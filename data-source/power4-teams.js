@@ -1,10 +1,15 @@
-// Conference membership for every Power-4 team, used only to judge whether a
-// pick's opponent is eligible (rule: SEC team must play a Power-4 opponent).
-// Harvested live on 2026-08-31 from ESPN's conference-flagged games across the
-// full 2025 season (sports.core.api.espn.com groups: 8=SEC, 1=ACC, 4=Big 12,
-// 5=Big Ten) — not hand-typed, so it reflects actual current realignment
-// (e.g. Oregon/Washington/UCLA/USC in the Big Ten, SMU/Stanford/Cal in the ACC,
-// Arizona/Utah/Colorado/Arizona State in the Big 12).
+// Conference membership for every team an SEC opponent could belong to, used
+// to judge whether a pick's opponent is eligible. Covers the Power-4 plus two
+// optional Group-of-5 conferences (Mountain West, Pac-12) admins can opt into
+// via config.eligibleConferences — see RULE_DEFAULTS in js/eligibility.js,
+// which defaults only the Power-4 to true. Harvested live from ESPN's
+// season-scoped conference-group rosters (sports.core.api.espn.com groups:
+// 8=SEC, 1=ACC, 4=Big 12, 5=Big Ten, 9=Pac-12, 17=Mountain West) — not
+// hand-typed, so it reflects actual current realignment (e.g.
+// Oregon/Washington/UCLA/USC in the Big Ten, SMU/Stanford/Cal in the ACC,
+// Arizona/Utah/Colorado/Arizona State in the Big 12, the rebuilt 8-team
+// Pac-12, and Mountain West's 2026 additions UTEP/Northern Illinois).
+// Power-4 rosters confirmed 2026-08-31; Mountain West/Pac-12 added 2026-09-01.
 export const POWER4_TEAMS = [
   // SEC (16) — same set as data-source/teams.js
   { abbr: 'ALA', name: 'Alabama Crimson Tide', conference: 'SEC' },
@@ -80,11 +85,38 @@ export const POWER4_TEAMS = [
   { abbr: 'ILL', name: 'Illinois Fighting Illini', conference: 'Big Ten' },
   { abbr: 'NU', name: 'Northwestern Wildcats', conference: 'Big Ten' },
   { abbr: 'IU', name: 'Indiana Hoosiers', conference: 'Big Ten' },
+
+  // Pac-12 (8) — rebuilt 2024 membership after the old Pac-12 broke apart
+  { abbr: 'SDSU', name: 'San Diego State Aztecs', conference: 'Pac-12' },
+  { abbr: 'CSU', name: 'Colorado State Rams', conference: 'Pac-12' },
+  { abbr: 'BOIS', name: 'Boise State Broncos', conference: 'Pac-12' },
+  { abbr: 'ORST', name: 'Oregon State Beavers', conference: 'Pac-12' },
+  { abbr: 'WSU', name: 'Washington State Cougars', conference: 'Pac-12' },
+  { abbr: 'FRES', name: 'Fresno State Bulldogs', conference: 'Pac-12' },
+  { abbr: 'TXST', name: 'Texas State Bobcats', conference: 'Pac-12' },
+  { abbr: 'USU', name: 'Utah State Aggies', conference: 'Pac-12' },
+
+  // Mountain West (10)
+  { abbr: 'SJSU', name: "San José State Spartans", conference: 'Mountain West' },
+  { abbr: 'HAW', name: "Hawai'i Rainbow Warriors", conference: 'Mountain West' },
+  { abbr: 'UNM', name: 'New Mexico Lobos', conference: 'Mountain West' },
+  { abbr: 'AFA', name: 'Air Force Falcons', conference: 'Mountain West' },
+  { abbr: 'UNLV', name: 'UNLV Rebels', conference: 'Mountain West' },
+  { abbr: 'NEV', name: 'Nevada Wolf Pack', conference: 'Mountain West' },
+  { abbr: 'NDSU', name: 'North Dakota State Bison', conference: 'Mountain West' },
+  { abbr: 'NIU', name: 'Northern Illinois Huskies', conference: 'Mountain West' },
+  { abbr: 'UTEP', name: 'UTEP Miners', conference: 'Mountain West' },
+  { abbr: 'WYO', name: 'Wyoming Cowboys', conference: 'Mountain West' },
 ];
 
 export const CONFERENCE_BY_ABBR = Object.fromEntries(POWER4_TEAMS.map(t => [t.abbr, t.conference]));
 
-export const ALL_CONFERENCES = ['SEC', 'ACC', 'Big 12', 'Big Ten'];
+export const ALL_CONFERENCES = ['SEC', 'ACC', 'Big 12', 'Big Ten', 'Pac-12', 'Mountain West'];
+
+// Conferences eligible by default when a pool has no config.eligibleConferences
+// yet — the Power-4 only. Pac-12 and Mountain West are opt-in (admin toggles
+// them on in Pool settings), not on by default.
+export const DEFAULT_ELIGIBLE_CONFERENCES = ['SEC', 'ACC', 'Big 12', 'Big Ten'];
 
 /** Returns the opponent's conference name, or null if they're not a Power-4 team. */
 export function conferenceOf(abbr) {

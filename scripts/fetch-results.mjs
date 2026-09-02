@@ -7,7 +7,7 @@
 import admin from 'firebase-admin';
 import { fetchGames } from '../data-source/provider.js';
 import { computeEliminations } from '../js/elimination.js';
-import { isLocked, computeLockTime } from '../js/eligibility.js';
+import { isLocked, computeLockTime, RULE_DEFAULTS } from '../js/eligibility.js';
 import { autoPicksForWeek } from '../js/autopick.js';
 
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -64,8 +64,12 @@ async function main() {
         picksForWeek = { ...picksForWeek, [pid]: pick };
         console.log(`Auto-picked ${team} for ${participants[pid]?.name || pid}.`);
       } else {
+        // Running out of legal teams is structural, not a game loss — it
+        // eliminates outright regardless of config.maxLosses.
+        const reason = 'No eligible teams remained for auto-pick';
         preElimUpdates[`participants/${pid}/eliminatedWeek`] = currentWeek;
-        preElimUpdates[`participants/${pid}/eliminatedReason`] = 'No eligible teams remained for auto-pick';
+        preElimUpdates[`participants/${pid}/eliminatedReason`] = reason;
+        preElimUpdates[`participants/${pid}/losses/${currentWeek}`] = reason;
         console.log(`No eligible teams left for ${participants[pid]?.name || pid} — eliminated.`);
       }
     }
@@ -73,21 +77,28 @@ async function main() {
     if (Object.keys(preElimUpdates).length) await db.ref().update(preElimUpdates);
   }
 
-  const eliminations = computeEliminations(mergedWeek, picksForWeek, participants, currentWeek, config.noPickPolicy || 'eliminate');
-  const entries = Object.entries(eliminations);
+  const maxLosses = config.maxLosses ?? RULE_DEFAULTS.maxLosses;
+  const { newlyEliminated, newLosses } = computeEliminations(
+    mergedWeek, picksForWeek, participants, currentWeek, config.noPickPolicy || 'eliminate', maxLosses
+  );
 
-  if (!entries.length) {
-    console.log('No new eliminations.');
+  if (!Object.keys(newlyEliminated).length && !Object.keys(newLosses).length) {
+    console.log('No new eliminations or losses.');
     return;
   }
 
-  const elimUpdates = {};
-  for (const [pid, info] of entries) {
-    elimUpdates[`participants/${pid}/eliminatedWeek`] = info.eliminatedWeek;
-    elimUpdates[`participants/${pid}/eliminatedReason`] = info.eliminatedReason;
+  const updates = {};
+  for (const [pid, info] of Object.entries(newlyEliminated)) {
+    updates[`participants/${pid}/eliminatedWeek`] = info.eliminatedWeek;
+    updates[`participants/${pid}/eliminatedReason`] = info.eliminatedReason;
+    updates[`participants/${pid}/losses/${currentWeek}`] = info.eliminatedReason;
     console.log(`Eliminated ${participants[pid]?.name || pid}: ${info.eliminatedReason}`);
   }
-  await db.ref().update(elimUpdates);
+  for (const [pid, info] of Object.entries(newLosses)) {
+    updates[`participants/${pid}/losses/${currentWeek}`] = info.reason;
+    console.log(`Loss recorded for ${participants[pid]?.name || pid} (not yet eliminated): ${info.reason}`);
+  }
+  await db.ref().update(updates);
 }
 
 main()
