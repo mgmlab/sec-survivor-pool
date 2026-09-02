@@ -30,9 +30,28 @@ Paste the printed hex string in as the value of `admin/passHash`.
 
 ### 3. Deploy the site
 Push this repo to GitHub, then **Settings > Pages** → deploy from `main` / `/root`.
-Every push auto-redeploys in under a minute. Bump the `?v=N` query strings on the
-`<link>`/`<script>` tags in `index.html`/`admin.html` on each deploy — phones cache
-aggressively otherwise.
+Every push auto-redeploys in under a minute. Bump the `?v=N` query string on
+**every** occurrence, everywhere — not just the `<link>`/`<script>` tags in
+`index.html`/`admin.html`, but every internal `import ... from '...js'` (and
+`export ... from '...js'`) across `js/*.js` and `data-source/*.js` too. All of
+them carry the exact same `?v=N` literal, so one find-and-replace bumps the
+whole graph at once:
+
+```bash
+grep -rl '?v=25' --include='*.js' --include='*.html' . | xargs sed -i 's/?v=25/?v=26/g'
+```
+
+This isn't just cosmetic cache-busting for the entry files — it's load-bearing.
+A phone that visited before a deploy can have one deep-imported module (say
+`eligibility.js`) cached from an old version while fetching a different one
+(say `power4-teams.js`) fresh, if only one of them changed. If the two no
+longer agree on exports, the whole module graph fails to evaluate and the
+page hangs forever on "Loading…" — this exact bug shipped once (2026-09-02).
+Versioning every import, not just the HTML entry points, guarantees a given
+deploy's files only ever resolve against each other, never a stale mix.
+`scripts/fetch-results.mjs` is the one exception — it runs via Node in
+GitHub Actions from a fresh checkout every time, no browser cache involved,
+so its imports stay unversioned.
 
 ### 4. Wire up the automated score-check (GitHub Actions)
 1. **Firebase console > Project settings > Service accounts > Generate new private key.**
