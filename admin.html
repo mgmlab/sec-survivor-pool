@@ -4,15 +4,50 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>SEC Survivor Pool — Admin</title>
-<link rel="stylesheet" href="css/style.css?v=27">
+<link rel="stylesheet" href="css/style.css?v=28">
 </head>
 <body>
-<div id="app"><p class="muted" style="padding:2rem;text-align:center;">Loading…</p></div>
+<div id="app"><p id="bootPlaceholder" class="muted" style="padding:2rem;text-align:center;">Loading…</p></div>
 
+<script>
+// Self-diagnosing boot watchdog — added after "stuck on Loading forever"
+// reports that turned out to have no console access to debug from (a phone,
+// no devtools handy). If nothing has replaced #bootPlaceholder within a few
+// seconds, something failed silently (a script/module failed to load, threw,
+// or a promise rejected) and we'd otherwise have zero visibility into why.
+// This dumps whatever we captured directly onto the page so it can just be
+// screenshotted, instead of guessing blind again.
+(function () {
+  var events = [];
+  function log(msg) { events.push(new Date().toISOString().slice(11, 19) + '  ' + msg); }
+  window.addEventListener('error', function (e) {
+    log('error: ' + (e.message || 'resource failed to load') + (e.filename ? ' @ ' + e.filename + ':' + e.lineno : ''));
+  }, true); // capture phase — script/resource load failures don't bubble
+  window.addEventListener('unhandledrejection', function (e) {
+    log('unhandled rejection: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+  setTimeout(function () {
+    if (!document.getElementById('bootPlaceholder')) return; // something rendered — all good
+    var lines = [
+      'Still on "Loading…" after 6s.',
+      '',
+      'User agent: ' + navigator.userAgent,
+      'Online: ' + navigator.onLine,
+      'firebase global present: ' + (typeof firebase !== 'undefined'),
+      '',
+      events.length ? 'Captured events:' : 'No error/rejection events captured.',
+    ].concat(events);
+    document.getElementById('app').innerHTML =
+      '<pre style="padding:1rem;font-size:0.7rem;white-space:pre-wrap;color:#f66;">' +
+      lines.join('\n').replace(/</g, '&lt;') +
+      '</pre><p style="text-align:center;padding:0 1rem;" class="muted">Screenshot this and send it back.</p>';
+  }, 6000);
+})();
+</script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
-<script src="js/firebase-config.js?v=27"></script>
-<script type="module" src="js/admin.js?v=27"></script>
+<script src="js/firebase-config.js?v=28"></script>
+<script type="module" src="js/admin.js?v=28"></script>
 </body>
 </html>

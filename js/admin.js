@@ -1,8 +1,8 @@
-import { fetchGames } from '../data-source/provider.js?v=27';
-import { computeEliminations, lossCountFor } from './elimination.js?v=27';
-import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=27';
-import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js?v=27';
-import { autoPicksForWeek } from './autopick.js?v=27';
+import { fetchGames } from '../data-source/provider.js?v=28';
+import { computeEliminations, lossCountFor } from './elimination.js?v=28';
+import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=28';
+import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js?v=28';
+import { autoPicksForWeek } from './autopick.js?v=28';
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
