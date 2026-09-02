@@ -97,6 +97,25 @@ body {
   font-weight: 700;
 }
 
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translate(-50%, 0.5rem);
+  background: var(--win);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.6rem 1.1rem;
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 20;
+}
+.toast.visible { opacity: 1; transform: translate(-50%, 0); }
+
 .rules-section {
   margin: 0 1rem 0.9rem;
   background: var(--panel);

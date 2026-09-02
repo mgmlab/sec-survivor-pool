@@ -64,6 +64,24 @@ const ui = { extraWeeks: new Set() };
 
 const $ = id => document.getElementById(id);
 
+// Lives outside #app (whose innerHTML gets fully replaced on every Firebase
+// listener re-render, including the one triggered by the very save this
+// confirms) so it survives that re-render instead of being wiped out by it.
+let toastTimer = null;
+function showToast(msg) {
+  let el = document.getElementById('adminToast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'adminToast';
+    el.className = 'toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add('visible');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('visible'), 2200);
+}
+
 async function sha256Hex(text) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -186,6 +204,7 @@ async function saveWeekDates(n) {
   if (!start || !end) return;
   await db.ref(`weeks/${n}/startDate`).set(start);
   await db.ref(`weeks/${n}/endDate`).set(end);
+  showToast(`Week ${n} dates saved.`);
 }
 
 async function syncWeek(n) {
@@ -339,6 +358,7 @@ async function saveConfig() {
     maxLosses: Number($('maxLosses').value) || 1,
     eligibleConferences,
   });
+  showToast('Settings saved.');
 }
 
 // ---- render ----
