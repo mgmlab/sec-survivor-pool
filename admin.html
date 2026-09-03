@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>SEC Survivor Pool — Admin</title>
-<link rel="stylesheet" href="css/style.css?v=35">
+<link rel="stylesheet" href="css/style.css?v=36">
 </head>
 <body>
 <div id="app"><p id="bootPlaceholder" class="muted" style="padding:2rem;text-align:center;">Loading…</p></div>
@@ -20,6 +20,24 @@
 (function () {
   var events = [];
   function log(msg) { events.push(new Date().toISOString().slice(11, 19) + '  ' + msg); }
+
+  // If the previous load stalled inside Firebase Auth's storage layer, come
+  // back with IndexedDB hidden so the SDK falls back to localStorage and can
+  // never touch it. On iOS WebKit an IndexedDB open can hang forever instead
+  // of failing — the SDK's "storage unavailable" fallback only triggers on an
+  // error, so a hang wedges auth with nothing thrown and nothing logged.
+  // Confirmed on iPhone Chrome: setPersistence timed out, then
+  // signInAnonymously() queued behind the same lock and never settled.
+  // Costs nothing here: auth persistence is deliberately in-memory anyway
+  // (identity is re-proven by passphrase every load), and Realtime Database
+  // doesn't use IndexedDB. Set by the auth-stall handler in js/admin.js.
+  // MUST run before the Firebase scripts below, hence inline and up here.
+  try {
+    if (sessionStorage.getItem('ssp_no_idb') === '1') {
+      Object.defineProperty(window, 'indexedDB', { value: undefined, configurable: true });
+      log('IndexedDB hidden for this load (previous load stalled in auth)');
+    }
+  } catch (e) { /* storage itself unavailable — nothing to disable */ }
   // Exposed so the module code can record which boot STAGE it reached.
   // Two rounds of this bug were lost to a dump that said only "no errors
   // captured" — true, but useless: a silent hang has no error, so what we
@@ -53,7 +71,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
-<script src="js/firebase-config.js?v=35"></script>
-<script type="module" src="js/admin.js?v=35"></script>
+<script src="js/firebase-config.js?v=36"></script>
+<script type="module" src="js/admin.js?v=36"></script>
 </body>
 </html>

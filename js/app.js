@@ -1,8 +1,8 @@
-import { SEC_TEAMS } from '../data-source/teams.js?v=35';
-import { conferenceOf } from '../data-source/power4-teams.js?v=35';
-import { fetchGames } from '../data-source/provider.js?v=35';
-import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=35';
-import { lossCountFor } from './elimination.js?v=35';
+import { SEC_TEAMS } from '../data-source/teams.js?v=36';
+import { conferenceOf } from '../data-source/power4-teams.js?v=36';
+import { fetchGames } from '../data-source/provider.js?v=36';
+import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=36';
+import { lossCountFor } from './elimination.js?v=36';
 
 // ---- on-device diagnostics ----
 // Three fix attempts guessed at plausible browser mechanisms (scroll
@@ -246,7 +246,7 @@ function withTimeout(promise, ms, label) {
 
 (async () => {
   const persistResult = await withTimeout(
-    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.NONE), 2000, 'setPersistence(NONE)'
+    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.NONE), 1200, 'setPersistence(NONE)'
   );
   boot(persistResult);
   dlog(persistResult);
@@ -263,11 +263,26 @@ function withTimeout(promise, ms, label) {
   }
 })();
 
+// Auth wedged in Firebase's storage layer never errors — it just never
+// settles — so the only way out is to notice the silence and act on it.
+// Reload once with IndexedDB disabled (see the inline script in index.html),
+// which takes the hanging storage path out of the picture entirely.
 setTimeout(() => {
   if (firebase.auth().currentUser) return;
-  boot('STALLED: no auth user after 12s');
-  showFatal('Signing in never completed. This is usually a browser storage or network restriction — try reloading, or opening this in Safari.');
-}, 12000);
+  boot('STALLED: no auth user after 7s');
+  dlog('STALLED: no auth user after 7s');
+  let alreadyRetried = false;
+  try {
+    alreadyRetried = sessionStorage.getItem('ssp_no_idb') === '1';
+    sessionStorage.setItem('ssp_no_idb', '1');
+  } catch (e) { /* no sessionStorage — fall through to the message below */ }
+  if (!alreadyRetried) {
+    boot('reloading once with IndexedDB disabled');
+    location.reload();
+    return;
+  }
+  showFatal('Signing in never completed, even with browser storage disabled. Close any other tabs of this site and reload — another tab can hold the storage lock this needs.');
+}, 7000);
 
 // Anything that stops the data from arriving used to leave the page showing
 // "Loading…" forever with no explanation (reported in an incognito tab,
