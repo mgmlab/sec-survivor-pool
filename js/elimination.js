@@ -33,6 +33,14 @@ export function computeEliminations(week, picksForWeek, participants, weekNumber
 
   for (const [pid, participant] of Object.entries(participants || {})) {
     if (participant.eliminatedWeek != null) continue; // already out, don't re-process
+    // This week's loss may already be on record from an earlier pass: the cron
+    // re-runs every 3 hours over the same finished games, and admin can click
+    // "Run eliminations" more than once. Without this guard the same single
+    // loss gets counted again each pass, so at maxLosses=2 one real loss would
+    // eliminate on the second run. (Invisible at the default maxLosses=1,
+    // where the first loss eliminates outright and the check above then
+    // short-circuits — which is why this never showed up in testing.)
+    if (participant.losses?.[weekNumber] != null) continue;
 
     const pick = picksForWeek?.[pid];
     let reason = null;

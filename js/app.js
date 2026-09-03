@@ -1,8 +1,8 @@
-import { SEC_TEAMS } from '../data-source/teams.js?v=31';
-import { conferenceOf } from '../data-source/power4-teams.js?v=31';
-import { fetchGames } from '../data-source/provider.js?v=31';
-import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=31';
-import { lossCountFor } from './elimination.js?v=31';
+import { SEC_TEAMS } from '../data-source/teams.js?v=32';
+import { conferenceOf } from '../data-source/power4-teams.js?v=32';
+import { fetchGames } from '../data-source/provider.js?v=32';
+import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=32';
+import { lossCountFor } from './elimination.js?v=32';
 
 // ---- on-device diagnostics ----
 // Three fix attempts guessed at plausible browser mechanisms (scroll
@@ -381,9 +381,21 @@ function resolveMyParticipant() {
     me.participantId = cached;
     return;
   }
-  me.participantId = Object.keys(S.participants).find(
+  const matched = Object.keys(S.participants).find(
     pid => S.participants[pid]?.claimedBy === me.identity
   ) || null;
+  // Don't drop a seat we're already signed into just because claimedBy no
+  // longer points at THIS session. claimedBy holds a single uid, but auth
+  // persistence is in-memory now, so every page load (and every extra tab)
+  // gets a fresh uid and re-claims the seat — which would otherwise kick the
+  // other session back to the sign-in screen, and them kick this one, back
+  // and forth. Staying put is also correct at the permission level: each
+  // session's own seatAuth/{pid}/authorized/{uid} entry survives, so its
+  // writes are still accepted by the rules.
+  if (!matched && me.participantId && cached === me.participantId && S.participants[me.participantId]) {
+    return;
+  }
+  me.participantId = matched;
   if (me.participantId) localStorage.setItem('ssp_participant', me.participantId);
 }
 
@@ -550,14 +562,23 @@ async function submitPick(team, weekNumber = S.config.currentWeek || 1) {
   const week = weekDataFor(weekNumber);
   if (isLocked(week)) { alert(`Picks are locked for week ${weekNumber}.`); return; }
   const current = S.picks?.[weekNumber]?.[me.participantId]?.team;
-  if (current === team) {
-    // Tapping your own current pick again clears it, rather than being a
-    // no-op — the only way to go from "picked" back to "no pick" otherwise
-    // would be picking a different team first, which isn't obvious and
-    // burns nothing but is still confusing.
-    await db.ref(`picks/${weekNumber}/${me.participantId}`).remove();
-  } else {
-    await db.ref(`picks/${weekNumber}/${me.participantId}`).set({ team, pickedAt: Date.now() });
+  // A rejected write (week locked server-side, or this device's seat
+  // authorization no longer valid) used to reject silently, which looks
+  // exactly like the tap never registered — the worst possible failure for
+  // a pick. Say so instead.
+  try {
+    if (current === team) {
+      // Tapping your own current pick again clears it, rather than being a
+      // no-op — the only way to go from "picked" back to "no pick" otherwise
+      // would be picking a different team first, which isn't obvious and
+      // burns nothing but is still confusing.
+      await db.ref(`picks/${weekNumber}/${me.participantId}`).remove();
+    } else {
+      await db.ref(`picks/${weekNumber}/${me.participantId}`).set({ team, pickedAt: Date.now() });
+    }
+  } catch (e) {
+    dlog(`submitPick failed — ${e.code || ''} ${e.message}`);
+    alert(`Couldn't save that pick: ${e.message}\n\nIf week ${weekNumber} just locked, picks are final. Otherwise try reloading and signing in again.`);
   }
 }
 
@@ -1055,7 +1076,12 @@ async function clearQueuedPicks(weeks) {
   if (!confirm(`Clear your queued pick${weeks.length > 1 ? 's' : ''} for ${label}? You can re-pick anytime before each one locks.`)) return;
   const updates = {};
   for (const wn of weeks) updates[`picks/${wn}/${me.participantId}`] = null;
-  await db.ref().update(updates);
+  try {
+    await db.ref().update(updates);
+  } catch (e) {
+    dlog(`clearQueuedPicks failed — ${e.code || ''} ${e.message}`);
+    alert(`Couldn't clear those picks: ${e.message}`);
+  }
 }
 
 function wireClearPicksBtn() {
