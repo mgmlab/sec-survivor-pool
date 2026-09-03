@@ -2,8 +2,8 @@
 // screen's grey-out UI (js/app.js), the admin auto-pick step (js/admin.js),
 // and the cron script's auto-pick step (scripts/fetch-results.mjs), so all
 // three can never disagree about which teams are legal to pick.
-import { SEC_TEAMS, isSecTeam } from '../data-source/teams.js?v=32';
-import { conferenceOf, ALL_CONFERENCES, DEFAULT_ELIGIBLE_CONFERENCES } from '../data-source/power4-teams.js?v=32';
+import { SEC_TEAMS, isSecTeam } from '../data-source/teams.js?v=33';
+import { conferenceOf, ALL_CONFERENCES, DEFAULT_ELIGIBLE_CONFERENCES } from '../data-source/power4-teams.js?v=33';
 
 export const RULE_DEFAULTS = {
   maxTeamUses: 1,

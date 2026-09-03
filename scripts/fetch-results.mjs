@@ -37,11 +37,23 @@ async function main() {
   const gamesById = {};
   for (const g of games) gamesById[g.id] = g;
 
+  // Keep any game the commissioner has hand-corrected. This write replaces the
+  // whole games list, so without this a manual override would silently revert
+  // on the next run (within 3 hours) — and an override exists precisely
+  // because ESPN was wrong about that one game, so ESPN must not win it back.
+  // Clearing the override in admin hands the game back to ESPN from then on.
+  const overridden = Object.entries(week.games || {}).filter(([, g]) => g?.isOverride);
+  for (const [id, g] of overridden) gamesById[id] = g;
+  if (overridden.length) {
+    console.log(`Preserved ${overridden.length} manually overridden game(s): ${overridden.map(([id]) => id).join(', ')}`);
+  }
+
+  const merged = Object.values(gamesById);
   const updates = { [`weeks/${currentWeek}/games`]: gamesById };
   if (!week.lockTime && games.length) {
     updates[`weeks/${currentWeek}/lockTime`] = computeLockTime(games, config);
   }
-  const allDone = games.length > 0 && games.every(g => g.completed);
+  const allDone = merged.length > 0 && merged.every(g => g.completed);
   updates[`weeks/${currentWeek}/status`] = allDone ? 'final' : (week.lockTime ? 'locked' : 'upcoming');
 
   await db.ref().update(updates);

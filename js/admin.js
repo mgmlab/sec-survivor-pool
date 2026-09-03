@@ -1,8 +1,8 @@
-import { fetchGames } from '../data-source/provider.js?v=32';
-import { computeEliminations, lossCountFor } from './elimination.js?v=32';
-import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=32';
-import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js?v=32';
-import { autoPicksForWeek } from './autopick.js?v=32';
+import { fetchGames } from '../data-source/provider.js?v=33';
+import { computeEliminations, lossCountFor } from './elimination.js?v=33';
+import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=33';
+import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js?v=33';
+import { autoPicksForWeek } from './autopick.js?v=33';
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
@@ -305,11 +305,18 @@ async function syncWeek(n) {
     const gamesById = {};
     for (const g of games) gamesById[g.id] = g;
 
+    // Keep any game you've hand-corrected — this write replaces the whole
+    // games list, so otherwise a sync would quietly revert your override back
+    // to ESPN's (wrong) result. Clear the override on a game to hand it back.
+    const overridden = Object.entries(week.games || {}).filter(([, g]) => g?.isOverride);
+    for (const [id, g] of overridden) gamesById[id] = g;
+
+    const merged = Object.values(gamesById);
     const updates = { [`weeks/${n}/games`]: gamesById };
     if (!week.lockTime && games.length) {
       updates[`weeks/${n}/lockTime`] = computeLockTime(games, S.config);
     }
-    const allDone = games.length > 0 && games.every(g => g.completed);
+    const allDone = merged.length > 0 && merged.every(g => g.completed);
     updates[`weeks/${n}/status`] = allDone ? 'final' : (week.lockTime ? 'locked' : 'upcoming');
 
     await db.ref().update(updates);
@@ -325,14 +332,21 @@ async function overrideGame(n, gameId) {
   const game = S.weeks[n]?.games?.[gameId];
   if (!game) return;
   const winner = prompt(
-    `Manual override for ${game.away.abbr} @ ${game.home.abbr}.\nEnter winning team abbreviation, "TIE", or leave blank to mark not-yet-final:`,
+    `Manual override for ${game.away.abbr} @ ${game.home.abbr}.\n\n`
+    + `Enter the winning team abbreviation, or "TIE".\n`
+    + `Leave blank to remove the override and let ESPN's result stand again.`,
     game.winnerAbbr || ''
   );
   if (winner === null) return;
+  // An override now survives every future sync, so blank has to be the way
+  // back out — otherwise a hand-edited game would be pinned to your edit for
+  // the rest of the season with no way to undo it. Clearing the flag lets the
+  // next sync overwrite this game with ESPN's data again.
   const patch = winner.trim()
     ? { completed: true, winnerAbbr: winner.trim().toUpperCase(), isOverride: true }
-    : { completed: false, winnerAbbr: null, isOverride: true };
+    : { isOverride: null };
   await db.ref(`weeks/${n}/games/${gameId}`).update(patch);
+  if (!winner.trim()) showToast('Override cleared — re-sync to pull ESPN\'s result.');
 }
 
 async function removeWeekSection(n) {

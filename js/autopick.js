@@ -1,4 +1,4 @@
-import { eligibleTeamsFor } from './eligibility.js?v=32';
+import { eligibleTeamsFor } from './eligibility.js?v=33';
 
 // Seeded so re-running the sync (the cron job fires repeatedly, or admin
 // clicks the button twice) doesn't reassign a different random team before
