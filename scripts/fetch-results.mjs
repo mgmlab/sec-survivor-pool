@@ -87,18 +87,18 @@ async function main() {
     return;
   }
 
-  const updates = {};
+  const elimUpdates = {};
   for (const [pid, info] of Object.entries(newlyEliminated)) {
-    updates[`participants/${pid}/eliminatedWeek`] = info.eliminatedWeek;
-    updates[`participants/${pid}/eliminatedReason`] = info.eliminatedReason;
-    updates[`participants/${pid}/losses/${currentWeek}`] = info.eliminatedReason;
+    elimUpdates[`participants/${pid}/eliminatedWeek`] = info.eliminatedWeek;
+    elimUpdates[`participants/${pid}/eliminatedReason`] = info.eliminatedReason;
+    elimUpdates[`participants/${pid}/losses/${currentWeek}`] = info.eliminatedReason;
     console.log(`Eliminated ${participants[pid]?.name || pid}: ${info.eliminatedReason}`);
   }
   for (const [pid, info] of Object.entries(newLosses)) {
-    updates[`participants/${pid}/losses/${currentWeek}`] = info.reason;
+    elimUpdates[`participants/${pid}/losses/${currentWeek}`] = info.reason;
     console.log(`Loss recorded for ${participants[pid]?.name || pid} (not yet eliminated): ${info.reason}`);
   }
-  await db.ref().update(updates);
+  await db.ref().update(elimUpdates);
 }
 
 main()
