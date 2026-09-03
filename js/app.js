@@ -1,8 +1,8 @@
-import { SEC_TEAMS } from '../data-source/teams.js?v=29';
-import { conferenceOf } from '../data-source/power4-teams.js?v=29';
-import { fetchGames } from '../data-source/provider.js?v=29';
-import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=29';
-import { lossCountFor } from './elimination.js?v=29';
+import { SEC_TEAMS } from '../data-source/teams.js?v=30';
+import { conferenceOf } from '../data-source/power4-teams.js?v=30';
+import { fetchGames } from '../data-source/provider.js?v=30';
+import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=30';
+import { lossCountFor } from './elimination.js?v=30';
 
 // ---- on-device diagnostics ----
 // Three fix attempts guessed at plausible browser mechanisms (scroll
@@ -261,6 +261,19 @@ firebase.auth().onAuthStateChanged(u => {
   resolveMyParticipant();
   logVisit();
   setupPresence();
+  // Every read below requires auth != null per firebase-rules.json — this is
+  // the ONLY point where we know that's actually true. Subscribing at module
+  // top-level instead (as this used to) raced the network round-trip
+  // signInAnonymously() needs: the .on('value') calls fired synchronously
+  // immediately, often before auth had actually completed, so Firebase's
+  // rules saw auth == null and permanently denied that listener — it does
+  // NOT silently retry once auth later succeeds. That race was near-invisible
+  // before (LOCAL persistence usually had a warm, already-authenticated
+  // session ready near-instantly on a reload) but got much easier to hit
+  // once persistence was forced to NONE, since now every load needs a fresh
+  // network round-trip first. Subscribing here, only once auth is confirmed,
+  // removes the race entirely regardless of how fast that round-trip is.
+  if (u) subscribeDataListeners();
   render();
 });
 if (!firebase.auth().currentUser) me.identity = deviceId();
@@ -289,32 +302,37 @@ function setupPresence() {
   });
 }
 
-for (const node of ['participants', 'weeks', 'picks', 'config']) {
-  let firstFire = true;
-  db.ref(node).on('value', snap => {
-    if (firstFire) { dlog(`${node} listener fired (first time)`); firstFire = false; }
-    S[node] = snap.val() || {};
-    S.loaded = true;
-    if (node === 'participants') {
-      resolveMyParticipant();
-      // Only worth attempting once participants exist and we know our uid.
-      if (!me.participantId && !seatRestoreTried && me.identity) {
-        seatRestoreTried = true;
-        restoreSeatSession();
+let dataListenersSubscribed = false;
+function subscribeDataListeners() {
+  if (dataListenersSubscribed) return;
+  dataListenersSubscribed = true;
+  for (const node of ['participants', 'weeks', 'picks', 'config']) {
+    let firstFire = true;
+    db.ref(node).on('value', snap => {
+      if (firstFire) { dlog(`${node} listener fired (first time)`); firstFire = false; }
+      S[node] = snap.val() || {};
+      S.loaded = true;
+      if (node === 'participants') {
+        resolveMyParticipant();
+        // Only worth attempting once participants exist and we know our uid.
+        if (!me.participantId && !seatRestoreTried && me.identity) {
+          seatRestoreTried = true;
+          restoreSeatSession();
+        }
       }
-    }
-    render();
-  }, err => {
-    // No error callback here before meant a permission-denied (or any other
-    // read error) failed completely silently — S.loaded would never become
-    // true and the page would hang on "Loading…" forever with zero trace of
-    // why. That matches a reported one-time hang closely enough to be worth
-    // fixing regardless of whether it's the scroll issue's cause too.
-    // dlog() alone isn't enough — it's only visible behind ?debug=1, which a
-    // real user hitting this would never think to add. Surface it for real.
-    dlog(`${node} listener ERROR — ${err.code || ''} ${err.message}`);
-    showFatal(`Couldn't load ${node}: ${err.message}`);
-  });
+      render();
+    }, err => {
+      // No error callback here before meant a permission-denied (or any other
+      // read error) failed completely silently — S.loaded would never become
+      // true and the page would hang on "Loading…" forever with zero trace of
+      // why. That matches a reported one-time hang closely enough to be worth
+      // fixing regardless of whether it's the scroll issue's cause too.
+      // dlog() alone isn't enough — it's only visible behind ?debug=1, which a
+      // real user hitting this would never think to add. Surface it for real.
+      dlog(`${node} listener ERROR — ${err.code || ''} ${err.message}`);
+      showFatal(`Couldn't load ${node}: ${err.message}`);
+    });
+  }
 }
 
 async function sha256Hex(text) {

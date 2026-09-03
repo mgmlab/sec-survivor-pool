@@ -1,8 +1,8 @@
-import { fetchGames } from '../data-source/provider.js?v=29';
-import { computeEliminations, lossCountFor } from './elimination.js?v=29';
-import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=29';
-import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js?v=29';
-import { autoPicksForWeek } from './autopick.js?v=29';
+import { fetchGames } from '../data-source/provider.js?v=30';
+import { computeEliminations, lossCountFor } from './elimination.js?v=30';
+import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=30';
+import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js?v=30';
+import { autoPicksForWeek } from './autopick.js?v=30';
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
@@ -147,15 +147,33 @@ firebase.auth().onAuthStateChanged(async u => {
   if (saved) {
     await db.ref('admin/authorized/' + u.uid).set(await sha256Hex(saved)).catch(() => {});
   }
+  // Every read below requires auth != null per firebase-rules.json — this is
+  // the ONLY point where we know that's actually true. Subscribing at module
+  // top-level instead (as this used to) raced the network round-trip
+  // signInAnonymously() needs: the .on('value') calls fired synchronously
+  // immediately, often before auth had actually completed, so Firebase's
+  // rules saw auth == null and permanently denied that listener — it does
+  // NOT silently retry once auth later succeeds. That race was near-invisible
+  // before (LOCAL persistence usually had a warm, already-authenticated
+  // session ready near-instantly on a reload) but got much easier to hit
+  // once persistence was forced to NONE, since now every load needs a fresh
+  // network round-trip first. Subscribing here, only once auth is confirmed,
+  // removes the race entirely regardless of how fast that round-trip is.
+  subscribeDataListeners();
   render();
 });
 
-for (const node of ['participants', 'weeks', 'picks', 'config']) {
-  db.ref(node).on('value', snap => {
-    S[node] = snap.val() || {};
-    S.loaded = true;
-    render();
-  }, e => showFatal(`Couldn't load ${node}: ${e.message}`));
+let dataListenersSubscribed = false;
+function subscribeDataListeners() {
+  if (dataListenersSubscribed) return;
+  dataListenersSubscribed = true;
+  for (const node of ['participants', 'weeks', 'picks', 'config']) {
+    db.ref(node).on('value', snap => {
+      S[node] = snap.val() || {};
+      S.loaded = true;
+      render();
+    }, e => showFatal(`Couldn't load ${node}: ${e.message}`));
+  }
 }
 
 // views/presence are admin-only readable, so only subscribe once unlocked.
