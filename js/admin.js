@@ -1,8 +1,8 @@
-import { fetchGames } from '../data-source/provider.js?v=30';
-import { computeEliminations, lossCountFor } from './elimination.js?v=30';
-import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=30';
-import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js?v=30';
-import { autoPicksForWeek } from './autopick.js?v=30';
+import { fetchGames } from '../data-source/provider.js?v=31';
+import { computeEliminations, lossCountFor } from './elimination.js?v=31';
+import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=31';
+import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js?v=31';
+import { autoPicksForWeek } from './autopick.js?v=31';
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
@@ -113,23 +113,51 @@ function showFatal(msg) {
     <p class="muted" style="font-size:0.9rem;">${msg}</p>
   </div>`;
 }
-// Persistence forced to NONE (in-memory only) — see js/app.js for the full
-// reasoning; admin identity is re-proven with the passphrase on every fresh
-// load too (below), so it never needed Firebase's own session to survive a
-// reload in the first place. This sidesteps LOCAL persistence's IndexedDB
-// dependency, which is what silently hung signInAnonymously() forever on
-// some mobile Chrome configurations and in-app browsers with no catchable
-// error at all.
-firebase.auth().setPersistence(firebase.auth.Auth.Persistence.NONE)
-  .catch(() => {}) // non-fatal — still attempt sign-in below either way
-  .then(() => firebase.auth().signInAnonymously())
-  .catch(e => {
+// Records how far boot actually got, into the same buffer admin.html's
+// watchdog dumps on screen. A hang produces no error to capture, so the
+// stage timeline is the only thing that localizes it — two rounds of this
+// bug were lost to a diagnostic that could only say "no errors captured".
+const boot = m => { try { window.__bootLog?.(m); } catch { /* never let logging break boot */ } };
+boot('admin.js module started');
+
+// Every step here is time-boxed. setPersistence sits in front of sign-in, and
+// on WebKit (all iOS browsers, Chrome included) a wedged storage layer can
+// leave its promise pending forever rather than rejecting — which stalls the
+// whole chain silently, with no error and no sign-in, which is exactly the
+// signature reported from Chrome on iOS. Persistence is only a nice-to-have
+// here anyway (identity is re-proven by passphrase on every load), so it must
+// never be able to block sign-in.
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    Promise.resolve(promise).then(() => `${label}: ok`, e => `${label}: failed (${e?.code || e?.message || e})`),
+    new Promise(res => setTimeout(() => res(`${label}: TIMED OUT after ${ms}ms — continuing anyway`), ms)),
+  ]);
+}
+
+(async () => {
+  boot(await withTimeout(
+    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.NONE), 2000, 'setPersistence(NONE)'
+  ));
+  try {
+    boot('calling signInAnonymously()');
+    await firebase.auth().signInAnonymously();
+    boot('signInAnonymously() resolved');
+  } catch (e) {
+    boot(`signInAnonymously() REJECTED — ${e.code}`);
     showFatal(`Couldn't sign in: ${e.message}. Private/Incognito browsing (or some Chrome configurations) can block the storage this needs — try a normal browser window, or Safari.`);
-  });
+  }
+})();
+
+setTimeout(() => {
+  if (me.identity) return; // auth came through; any later problem is reported elsewhere
+  boot('STALLED: no auth user after 12s');
+  showFatal('Signing in never completed. This is usually a browser storage or network restriction — try reloading, or opening this in Safari.');
+}, 12000);
 setTimeout(() => {
   if (!S.loaded) showFatal('The connection to the pool data timed out. Check your connection and reload; if you\'re in a Private/Incognito window, try a normal one.');
 }, 15000);
 firebase.auth().onAuthStateChanged(async u => {
+  boot(`onAuthStateChanged — uid=${u?.uid ? u.uid.slice(0, 8) : '(none)'}`);
   if (!u) return;
   me.identity = u.uid;
 
@@ -167,12 +195,18 @@ let dataListenersSubscribed = false;
 function subscribeDataListeners() {
   if (dataListenersSubscribed) return;
   dataListenersSubscribed = true;
+  boot('subscribing data listeners');
   for (const node of ['participants', 'weeks', 'picks', 'config']) {
+    let firstFire = true;
     db.ref(node).on('value', snap => {
+      if (firstFire) { boot(`${node} loaded`); firstFire = false; }
       S[node] = snap.val() || {};
       S.loaded = true;
       render();
-    }, e => showFatal(`Couldn't load ${node}: ${e.message}`));
+    }, e => {
+      boot(`${node} listener ERROR — ${e.code || e.message}`);
+      showFatal(`Couldn't load ${node}: ${e.message}`);
+    });
   }
 }
 

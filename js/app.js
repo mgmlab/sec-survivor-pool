@@ -1,8 +1,8 @@
-import { SEC_TEAMS } from '../data-source/teams.js?v=30';
-import { conferenceOf } from '../data-source/power4-teams.js?v=30';
-import { fetchGames } from '../data-source/provider.js?v=30';
-import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=30';
-import { lossCountFor } from './elimination.js?v=30';
+import { SEC_TEAMS } from '../data-source/teams.js?v=31';
+import { conferenceOf } from '../data-source/power4-teams.js?v=31';
+import { fetchGames } from '../data-source/provider.js?v=31';
+import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=31';
+import { lossCountFor } from './elimination.js?v=31';
 
 // ---- on-device diagnostics ----
 // Three fix attempts guessed at plausible browser mechanisms (scroll
@@ -218,24 +218,56 @@ function deviceId() {
   return id;
 }
 
-dlog('calling signInAnonymously()');
 // Persistence forced to NONE (in-memory only) deliberately — this app never
 // relies on Firebase's own session surviving a reload; participant identity
 // is re-proven with a password on every fresh load regardless of which
 // anonymous uid Firebase hands out that time (see restoreSeatSession()).
 // The default LOCAL persistence needs IndexedDB, which some mobile Chrome
 // configurations and in-app browsers (e.g. links opened inside Messages)
-// block or restrict — that silently hangs signInAnonymously() forever with
-// no catchable error, which is exactly what "stuck on Loading" reports
-// looked like. NONE sidesteps that dependency at no real cost here.
-firebase.auth().setPersistence(firebase.auth.Auth.Persistence.NONE)
-  .catch(e => dlog(`setPersistence REJECTED (continuing anyway) — ${e.code} ${e.message}`))
-  .then(() => firebase.auth().signInAnonymously())
-  .then(() => dlog('signInAnonymously() resolved'))
-  .catch(e => {
+// block or restrict. NONE sidesteps that dependency at no real cost here.
+//
+// Every step here is time-boxed. setPersistence sits in front of sign-in, and
+// on WebKit (all iOS browsers, Chrome included) a wedged storage layer can
+// leave its promise pending forever rather than rejecting — which stalls the
+// whole chain silently, with no error and no sign-in. Persistence is only a
+// nice-to-have here anyway (seat identity is re-proven by password on every
+// load), so it must never be able to block sign-in.
+// `boot()` mirrors these stages into index.html's watchdog buffer, which is
+// visible without devtools — dlog() alone is gated behind ?debug=1.
+const boot = m => { try { window.__bootLog?.(m); } catch { /* never let logging break boot */ } };
+boot('app.js module started');
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    Promise.resolve(promise).then(() => `${label}: ok`, e => `${label}: failed (${e?.code || e?.message || e})`),
+    new Promise(res => setTimeout(() => res(`${label}: TIMED OUT after ${ms}ms — continuing anyway`), ms)),
+  ]);
+}
+
+(async () => {
+  const persistResult = await withTimeout(
+    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.NONE), 2000, 'setPersistence(NONE)'
+  );
+  boot(persistResult);
+  dlog(persistResult);
+  try {
+    boot('calling signInAnonymously()');
+    dlog('calling signInAnonymously()');
+    await firebase.auth().signInAnonymously();
+    boot('signInAnonymously() resolved');
+    dlog('signInAnonymously() resolved');
+  } catch (e) {
+    boot(`signInAnonymously() REJECTED — ${e.code}`);
     dlog(`signInAnonymously() REJECTED — ${e.code} ${e.message}`);
     showFatal(`Couldn't sign in: ${e.message}. Private/Incognito browsing can block the storage this needs — try a normal browser window.`);
-  });
+  }
+})();
+
+setTimeout(() => {
+  if (firebase.auth().currentUser) return;
+  boot('STALLED: no auth user after 12s');
+  showFatal('Signing in never completed. This is usually a browser storage or network restriction — try reloading, or opening this in Safari.');
+}, 12000);
 
 // Anything that stops the data from arriving used to leave the page showing
 // "Loading…" forever with no explanation (reported in an incognito tab,
@@ -256,6 +288,7 @@ setTimeout(() => {
   }
 }, 15000);
 firebase.auth().onAuthStateChanged(u => {
+  boot(`onAuthStateChanged — uid=${u?.uid ? u.uid.slice(0, 8) : '(none)'}`);
   dlog(`onAuthStateChanged — uid=${u?.uid || '(none, using deviceId fallback)'}`);
   me.identity = u ? u.uid : deviceId();
   resolveMyParticipant();
@@ -306,10 +339,11 @@ let dataListenersSubscribed = false;
 function subscribeDataListeners() {
   if (dataListenersSubscribed) return;
   dataListenersSubscribed = true;
+  boot('subscribing data listeners');
   for (const node of ['participants', 'weeks', 'picks', 'config']) {
     let firstFire = true;
     db.ref(node).on('value', snap => {
-      if (firstFire) { dlog(`${node} listener fired (first time)`); firstFire = false; }
+      if (firstFire) { boot(`${node} loaded`); dlog(`${node} listener fired (first time)`); firstFire = false; }
       S[node] = snap.val() || {};
       S.loaded = true;
       if (node === 'participants') {
@@ -329,6 +363,7 @@ function subscribeDataListeners() {
       // fixing regardless of whether it's the scroll issue's cause too.
       // dlog() alone isn't enough — it's only visible behind ?debug=1, which a
       // real user hitting this would never think to add. Surface it for real.
+      boot(`${node} listener ERROR — ${err.code || err.message}`);
       dlog(`${node} listener ERROR — ${err.code || ''} ${err.message}`);
       showFatal(`Couldn't load ${node}: ${err.message}`);
     });

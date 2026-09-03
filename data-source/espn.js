@@ -9,7 +9,7 @@
 // (silently ignored in some combinations), so this module always queries by
 // explicit `dates=YYYYMMDD-YYYYMMDD` range instead of ESPN's own week numbers.
 
-import { isSecTeam } from './teams.js?v=30';
+import { isSecTeam } from './teams.js?v=31';
 
 const SCOREBOARD_URL =
   'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard';
