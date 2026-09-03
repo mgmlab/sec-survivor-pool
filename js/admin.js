@@ -1,8 +1,8 @@
-import { fetchGames } from '../data-source/provider.js?v=34';
-import { computeEliminations, lossCountFor } from './elimination.js?v=34';
-import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=34';
-import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js?v=34';
-import { autoPicksForWeek } from './autopick.js?v=34';
+import { fetchGames } from '../data-source/provider.js?v=35';
+import { computeEliminations, lossCountFor } from './elimination.js?v=35';
+import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=35';
+import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js?v=35';
+import { autoPicksForWeek } from './autopick.js?v=35';
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
@@ -211,12 +211,29 @@ function subscribeDataListeners() {
 }
 
 // views/presence are admin-only readable, so only subscribe once unlocked.
-let statsSubscribed = false;
+//
+// These used to subscribe once with silent no-op error handlers, which lost a
+// real race: admin.js proves admin status by writing admin/authorized/{uid},
+// and Firebase echoes that write to local listeners BEFORE the server has
+// committed it. So me.admin flips true and these subscribe a beat early, the
+// server (not yet seeing this uid as admin) denies the read, and RTDB never
+// retries a denied listener — leaving S.views empty for the whole session with
+// nothing logged. Every participant row then showed "last seen —" no matter
+// how recently someone had been on. Retry per node instead of giving up.
+const statsSubscribed = { views: false, presence: false };
+let statsRetries = 0;
 function subscribeAdminStats() {
-  if (statsSubscribed || !me.admin) return;
-  statsSubscribed = true;
-  db.ref('views').on('value', s => { S.views = s.val() || {}; render(); }, () => {});
-  db.ref('presence').on('value', s => { S.presence = s.val() || {}; render(); }, () => {});
+  if (!me.admin) return;
+  for (const node of ['views', 'presence']) {
+    if (statsSubscribed[node]) continue;
+    statsSubscribed[node] = true;
+    db.ref(node).on('value', s => { S[node] = s.val() || {}; render(); }, e => {
+      boot(`${node} listener denied (${e.code || e.message}) — retry ${statsRetries + 1}`);
+      statsSubscribed[node] = false;
+      db.ref(node).off();
+      if (statsRetries++ < 5) setTimeout(subscribeAdminStats, 400 * statsRetries);
+    });
+  }
 }
 
 function ago(ts) {
