@@ -1,8 +1,8 @@
-import { SEC_TEAMS } from '../data-source/teams.js?v=33';
-import { conferenceOf } from '../data-source/power4-teams.js?v=33';
-import { fetchGames } from '../data-source/provider.js?v=33';
-import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=33';
-import { lossCountFor } from './elimination.js?v=33';
+import { SEC_TEAMS } from '../data-source/teams.js?v=34';
+import { conferenceOf } from '../data-source/power4-teams.js?v=34';
+import { fetchGames } from '../data-source/provider.js?v=34';
+import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=34';
+import { lossCountFor } from './elimination.js?v=34';
 
 // ---- on-device diagnostics ----
 // Three fix attempts guessed at plausible browser mechanisms (scroll
@@ -314,9 +314,19 @@ if (!firebase.auth().currentUser) me.identity = deviceId();
 // ---- usage stats (admin-only visibility): one view log per page load + live presence ----
 let viewLogged = false;
 function logVisit() {
-  if (viewLogged || !me.identity) return;
+  // Must wait for a real signed-in user, exactly like setupPresence below.
+  // onAuthStateChanged fires once with no user before sign-in completes; on
+  // that pass me.identity is the local deviceId fallback, so this wrote to
+  // views/<deviceId> — which the rules reject ($uid must equal auth.uid) —
+  // while still burning the one-shot flag, so the real visit was never
+  // logged at all. Admin's "last seen" then sat at "—" forever for everyone
+  // (presence was unaffected, which is why people showed as online with no
+  // last-seen time). Only became reachable once auth persistence went
+  // in-memory and that no-user pass started happening on every load.
+  const user = firebase.auth().currentUser;
+  if (viewLogged || !user) return;
   viewLogged = true;
-  db.ref('views/' + me.identity).update({
+  db.ref('views/' + user.uid).update({
     count: firebase.database.ServerValue.increment(1),
     last: firebase.database.ServerValue.TIMESTAMP,
   }).catch(() => {});
