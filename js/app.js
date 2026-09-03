@@ -1,8 +1,8 @@
-import { SEC_TEAMS } from '../data-source/teams.js?v=28';
-import { conferenceOf } from '../data-source/power4-teams.js?v=28';
-import { fetchGames } from '../data-source/provider.js?v=28';
-import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=28';
-import { lossCountFor } from './elimination.js?v=28';
+import { SEC_TEAMS } from '../data-source/teams.js?v=29';
+import { conferenceOf } from '../data-source/power4-teams.js?v=29';
+import { fetchGames } from '../data-source/provider.js?v=29';
+import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=29';
+import { lossCountFor } from './elimination.js?v=29';
 
 // ---- on-device diagnostics ----
 // Three fix attempts guessed at plausible browser mechanisms (scroll
@@ -219,7 +219,18 @@ function deviceId() {
 }
 
 dlog('calling signInAnonymously()');
-firebase.auth().signInAnonymously()
+// Persistence forced to NONE (in-memory only) deliberately — this app never
+// relies on Firebase's own session surviving a reload; participant identity
+// is re-proven with a password on every fresh load regardless of which
+// anonymous uid Firebase hands out that time (see restoreSeatSession()).
+// The default LOCAL persistence needs IndexedDB, which some mobile Chrome
+// configurations and in-app browsers (e.g. links opened inside Messages)
+// block or restrict — that silently hangs signInAnonymously() forever with
+// no catchable error, which is exactly what "stuck on Loading" reports
+// looked like. NONE sidesteps that dependency at no real cost here.
+firebase.auth().setPersistence(firebase.auth.Auth.Persistence.NONE)
+  .catch(e => dlog(`setPersistence REJECTED (continuing anyway) — ${e.code} ${e.message}`))
+  .then(() => firebase.auth().signInAnonymously())
   .then(() => dlog('signInAnonymously() resolved'))
   .catch(e => {
     dlog(`signInAnonymously() REJECTED — ${e.code} ${e.message}`);
@@ -299,7 +310,10 @@ for (const node of ['participants', 'weeks', 'picks', 'config']) {
     // true and the page would hang on "Loading…" forever with zero trace of
     // why. That matches a reported one-time hang closely enough to be worth
     // fixing regardless of whether it's the scroll issue's cause too.
+    // dlog() alone isn't enough — it's only visible behind ?debug=1, which a
+    // real user hitting this would never think to add. Surface it for real.
     dlog(`${node} listener ERROR — ${err.code || ''} ${err.message}`);
+    showFatal(`Couldn't load ${node}: ${err.message}`);
   });
 }
 

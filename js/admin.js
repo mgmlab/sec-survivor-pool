@@ -1,8 +1,8 @@
-import { fetchGames } from '../data-source/provider.js?v=28';
-import { computeEliminations, lossCountFor } from './elimination.js?v=28';
-import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=28';
-import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js?v=28';
-import { autoPicksForWeek } from './autopick.js?v=28';
+import { fetchGames } from '../data-source/provider.js?v=29';
+import { computeEliminations, lossCountFor } from './elimination.js?v=29';
+import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=29';
+import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js?v=29';
+import { autoPicksForWeek } from './autopick.js?v=29';
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
@@ -96,7 +96,39 @@ function slugify(name) {
 }
 
 // ---- auth ----
-firebase.auth().signInAnonymously().catch(() => {});
+// Unlike app.js, there's no fallback identity here if real Firebase Auth
+// never comes through — every node admin needs (including config/weeks/picks,
+// not just admin-only ones) requires auth != null per firebase-rules.json, so
+// a failure here is fatal, not degradable. This used to be a silently
+// swallowed .catch(() => {}), which is exactly why reports of this page
+// hanging on "Loading…" forever came back with zero captured errors: Firebase
+// Auth failures (blocked IndexedDB/storage — seen in some mobile Chrome
+// configurations and in-app browsers) don't throw an uncaught JS exception,
+// they just reject this promise, which we were throwing away.
+function showFatal(msg) {
+  const el = $('app');
+  if (!el || S.loaded) return;
+  el.innerHTML = `<div style="padding:2rem;text-align:center;">
+    <p style="color:var(--lose);font-weight:600;">Couldn't load</p>
+    <p class="muted" style="font-size:0.9rem;">${msg}</p>
+  </div>`;
+}
+// Persistence forced to NONE (in-memory only) — see js/app.js for the full
+// reasoning; admin identity is re-proven with the passphrase on every fresh
+// load too (below), so it never needed Firebase's own session to survive a
+// reload in the first place. This sidesteps LOCAL persistence's IndexedDB
+// dependency, which is what silently hung signInAnonymously() forever on
+// some mobile Chrome configurations and in-app browsers with no catchable
+// error at all.
+firebase.auth().setPersistence(firebase.auth.Auth.Persistence.NONE)
+  .catch(() => {}) // non-fatal — still attempt sign-in below either way
+  .then(() => firebase.auth().signInAnonymously())
+  .catch(e => {
+    showFatal(`Couldn't sign in: ${e.message}. Private/Incognito browsing (or some Chrome configurations) can block the storage this needs — try a normal browser window, or Safari.`);
+  });
+setTimeout(() => {
+  if (!S.loaded) showFatal('The connection to the pool data timed out. Check your connection and reload; if you\'re in a Private/Incognito window, try a normal one.');
+}, 15000);
 firebase.auth().onAuthStateChanged(async u => {
   if (!u) return;
   me.identity = u.uid;
@@ -109,7 +141,7 @@ firebase.auth().onAuthStateChanged(async u => {
     me.admin = !!snap.val();
     subscribeAdminStats();
     render();
-  });
+  }, e => showFatal(`Couldn't check admin status: ${e.message}`));
 
   const saved = localStorage.getItem('ssp_admin_pass');
   if (saved) {
@@ -123,7 +155,7 @@ for (const node of ['participants', 'weeks', 'picks', 'config']) {
     S[node] = snap.val() || {};
     S.loaded = true;
     render();
-  });
+  }, e => showFatal(`Couldn't load ${node}: ${e.message}`));
 }
 
 // views/presence are admin-only readable, so only subscribe once unlocked.
