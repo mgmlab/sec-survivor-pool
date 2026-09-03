@@ -6,7 +6,11 @@
     "participants": {
       ".read": "auth != null",
       "$pid": {
-        ".write": "auth != null && (root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val() || !root.child('seatAuth').child($pid).child('passHash').exists() || root.child('seatAuth').child($pid).child('authorized').child(auth.uid).val() === root.child('seatAuth').child($pid).child('passHash').val())"
+        ".write": "auth != null && root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val()",
+
+        "claimedBy": {
+          ".write": "auth != null && (root.child('admin/authorized').child(auth.uid).val() === root.child('admin/passHash').val() || ((!root.child('seatAuth').child($pid).child('passHash').exists() || root.child('seatAuth').child($pid).child('authorized').child(auth.uid).val() === root.child('seatAuth').child($pid).child('passHash').val()) && newData.val() === auth.uid))"
+        }
       }
     },
 
