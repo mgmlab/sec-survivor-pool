@@ -1,8 +1,8 @@
-import { SEC_TEAMS } from '../data-source/teams.js?v=36';
-import { conferenceOf } from '../data-source/power4-teams.js?v=36';
-import { fetchGames } from '../data-source/provider.js?v=36';
-import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=36';
-import { lossCountFor } from './elimination.js?v=36';
+import { SEC_TEAMS } from '../data-source/teams.js?v=37';
+import { conferenceOf } from '../data-source/power4-teams.js?v=37';
+import { fetchGames } from '../data-source/provider.js?v=37';
+import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=37';
+import { lossCountFor } from './elimination.js?v=37';
 
 // ---- on-device diagnostics ----
 // Three fix attempts guessed at plausible browser mechanisms (scroll
@@ -583,6 +583,34 @@ function mergedWeeksFor(extraWeekNumbers = []) {
   return merged;
 }
 
+// Lives outside #app, which gets its innerHTML replaced on every Firebase
+// update — including the one the pick itself triggers — so a confirmation
+// rendered inside it would be wiped by the very save it's confirming.
+let toastTimer = null;
+function showToast(msg) {
+  let el = document.getElementById('appToast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'appToast';
+    el.className = 'toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add('visible');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('visible'), 2600);
+}
+
+/** School name for a team, preferring that week's own game data. */
+function teamSchoolFor(abbr, weekNumber) {
+  const game = gameForTeam(weekDataFor(weekNumber), abbr);
+  if (game) {
+    const t = game.home.abbr === abbr ? game.home : game.away;
+    return t.school || t.name || abbr;
+  }
+  return schoolNameFor(abbr);
+}
+
 async function submitPick(team, weekNumber = S.config.currentWeek || 1) {
   const week = weekDataFor(weekNumber);
   if (isLocked(week)) { alert(`Picks are locked for week ${weekNumber}.`); return; }
@@ -598,8 +626,14 @@ async function submitPick(team, weekNumber = S.config.currentWeek || 1) {
       // would be picking a different team first, which isn't obvious and
       // burns nothing but is still confusing.
       await db.ref(`picks/${weekNumber}/${me.participantId}`).remove();
+      showToast(`Pick removed for Week ${weekNumber}`);
     } else {
       await db.ref(`picks/${weekNumber}/${me.participantId}`).set({ team, pickedAt: Date.now() });
+      // Confirm the moment it's actually saved. The only feedback used to be
+      // the card changing colour — and since the grid re-sorts pickable teams
+      // to the top, the card can even move — so people were left unsure their
+      // tap registered and were texting the commissioner to ask.
+      showToast(`✓ Pick saved: ${teamSchoolFor(team, weekNumber)} — Week ${weekNumber}`);
     }
   } catch (e) {
     dlog(`submitPick failed — ${e.code || ''} ${e.message}`);
@@ -863,7 +897,27 @@ function renderPickScreen(participant) {
     + (pickable.length && unpickable.length ? '<div class="team-grid-divider">Not eligible this week</div>' : '')
     + unpickable.join('');
 
+  // Answers "did my pick go in?" without the player having to remember what
+  // they tapped or spot a highlighted card. This is the standing answer; the
+  // toast on save is the immediate one.
+  const pickedSchool = myPick ? teamSchoolFor(myPick, currentWeek) : null;
+  let status;
+  if (myPick && locked) {
+    status = `<div class="pick-status in"><span>✓</span><div>Locked in — <strong>${pickedSchool}</strong>
+      <span class="sub">Week ${currentWeek} · picks are final</span></div></div>`;
+  } else if (myPick) {
+    status = `<div class="pick-status in"><span>✓</span><div>Your pick is in — <strong>${pickedSchool}</strong>
+      <span class="sub">Week ${currentWeek} · change it any time until ${lockLabel}</span></div></div>`;
+  } else if (locked) {
+    status = `<div class="pick-status out"><span>—</span><div>No pick was submitted
+      <span class="sub">Week ${currentWeek} · picks are closed</span></div></div>`;
+  } else {
+    status = `<div class="pick-status none"><span>!</span><div>You haven't picked yet
+      <span class="sub">Week ${currentWeek} · tap a team below. Locks ${lockLabel}</span></div></div>`;
+  }
+
   return `
+    ${status}
     <div class="week-meta">
       <span>Week ${currentWeek}</span>
       <span class="${locked ? 'locked' : ''}">${locked ? 'Locked' : `Locks ${lockLabel}`}</span>
