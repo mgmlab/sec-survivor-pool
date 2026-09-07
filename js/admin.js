@@ -1,8 +1,8 @@
-import { fetchGames } from '../data-source/provider.js?v=38';
-import { computeEliminations, lossCountFor } from './elimination.js?v=38';
-import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=38';
-import { RULE_DEFAULTS, isLocked, computeLockTime, gameForTeam } from './eligibility.js?v=38';
-import { autoPicksForWeek } from './autopick.js?v=38';
+import { fetchGames } from '../data-source/provider.js?v=39';
+import { computeEliminations, lossCountFor } from './elimination.js?v=39';
+import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=39';
+import { RULE_DEFAULTS, isLocked, computeLockTime, gameForTeam } from './eligibility.js?v=39';
+import { autoPicksForWeek } from './autopick.js?v=39';
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
@@ -689,21 +689,28 @@ function renderParticipantsSection() {
 
       const picksOpen = ui.openPicks.has(pid);
 
+      // Name on its own line, buttons on the next, with a rule between people.
+      // These used to share one space-between row, so whether the buttons sat
+      // beside the name or wrapped below it depended on how long the name was —
+      // and on the short ones ("Ace", "Ram") Remove ran off the right edge.
       return `
-      <div class="admin-row" style="justify-content:space-between; flex-wrap:wrap;">
-        <span>${p.name} ${p.claimedBy ? '' : '<span class="muted">(unclaimed)</span>'} ${p.eliminatedWeek != null ? `<span class="badge-out">OUT W${p.eliminatedWeek}</span>` : lossBadge}
+      <div class="participant-row">
+        <div class="participant-name">
+          <span>${p.name}</span>
+          ${p.claimedBy ? '' : '<span class="muted">(unclaimed)</span>'}
+          ${p.eliminatedWeek != null ? `<span class="badge-out">OUT W${p.eliminatedWeek}</span>` : lossBadge}
           ${pickStatus} ${presenceLabel}
-        </span>
-        <span>
+        </div>
+        <div class="participant-actions">
           <button class="btn secondary" data-togglepicks="${pid}">${picksOpen ? 'Hide picks' : 'Picks'}</button>
           ${p.claimedBy ? `<button class="btn secondary" data-unclaim="${pid}">Reset password</button>` : ''}
           ${p.eliminatedWeek != null
             ? `<button class="btn secondary" data-reinstate="${pid}">Reinstate</button>`
             : `<button class="btn secondary" data-eliminate="${pid}">Eliminate</button>`}
           <button class="btn danger" data-delete="${pid}">Remove</button>
-        </span>
-      </div>
-      ${picksOpen ? `<div class="pick-history-wrap">${renderPickHistory(pid)}</div>` : ''}`;
+        </div>
+        ${picksOpen ? `<div class="pick-history-wrap">${renderPickHistory(pid)}</div>` : ''}
+      </div>`;
     }).join('')}
   </div>`;
 }

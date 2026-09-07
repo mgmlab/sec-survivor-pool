@@ -345,6 +345,24 @@ table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 .history-table td:first-child, .history-table th:first-child { text-align: left; position: sticky; left: 0; background: var(--bg); }
 .week-caret { display: inline-block; width: 1rem; color: var(--muted); }
 
+/* One participant per block: name line, action line, rule between people —
+   so a short name can't pull the buttons up beside it (which pushed Remove
+   off the right edge) and buttons never read as part of the next name. */
+.participant-row {
+  padding: 0.7rem 0 0.6rem;
+  border-top: 1px solid var(--border);
+}
+.participant-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.55rem;
+  font-weight: 600;
+}
+.participant-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.participant-actions button.btn { padding: 0.4rem 0.75rem; font-size: 0.82rem; }
+
 .pick-history-wrap { overflow-x: auto; padding: 0 0 0.6rem; }
 .pick-history-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
 .pick-history-table th, .pick-history-table td {
