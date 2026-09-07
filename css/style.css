@@ -343,6 +343,18 @@ table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 .history-scroll { overflow-x: auto; }
 .history-table th, .history-table td { text-align: center; white-space: nowrap; }
 .history-table td:first-child, .history-table th:first-child { text-align: left; position: sticky; left: 0; background: var(--bg); }
+.week-caret { display: inline-block; width: 1rem; color: var(--muted); }
+
+.pick-history-wrap { overflow-x: auto; padding: 0 0 0.6rem; }
+.pick-history-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.pick-history-table th, .pick-history-table td {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+.pick-history-table th { color: var(--muted); font-weight: 600; }
+
 .pick-won { color: var(--win); font-weight: 700; }
 .pick-lost { color: var(--lose); font-weight: 700; text-decoration: line-through; }
 .pick-pending { color: var(--muted); }

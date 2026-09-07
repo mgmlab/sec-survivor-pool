@@ -1,8 +1,8 @@
-import { fetchGames } from '../data-source/provider.js?v=37';
-import { computeEliminations, lossCountFor } from './elimination.js?v=37';
-import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=37';
-import { RULE_DEFAULTS, isLocked, computeLockTime } from './eligibility.js?v=37';
-import { autoPicksForWeek } from './autopick.js?v=37';
+import { fetchGames } from '../data-source/provider.js?v=38';
+import { computeEliminations, lossCountFor } from './elimination.js?v=38';
+import { ALL_CONFERENCES } from '../data-source/power4-teams.js?v=38';
+import { RULE_DEFAULTS, isLocked, computeLockTime, gameForTeam } from './eligibility.js?v=38';
+import { autoPicksForWeek } from './autopick.js?v=38';
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 let lastScreenKey = undefined;
@@ -60,7 +60,11 @@ const me = { identity: null, admin: false };
 // configure a week other than whichever one happened to be current, and
 // "Save dates" for a week you meant to add would silently overwrite
 // whatever week WAS showing instead.
-const ui = { extraWeeks: new Set() };
+// weekOpen holds only EXPLICIT expand/collapse choices. Anything absent falls
+// back to "open if it's the current week", so advancing to a new week collapses
+// the old one and opens the new one on its own, with no bookkeeping.
+// openPicks is which participants have their pick history expanded.
+const ui = { extraWeeks: new Set(), weekOpen: {}, openPicks: new Set() };
 
 const $ = id => document.getElementById(id);
 
@@ -598,6 +602,58 @@ function renderConfigSection() {
   </div>`;
 }
 
+// Every week this participant has been through: what they picked, who it was
+// against, how it turned out, and when they submitted it — so "when did I pick
+// Kentucky?" has an answer that doesn't involve digging through the database.
+function renderPickHistory(pid) {
+  const weekNums = [...new Set([
+    ...Object.keys(S.weeks || {}).map(Number),
+    ...Object.keys(S.picks || {}).map(Number),
+  ])].sort((a, b) => a - b);
+  if (!weekNums.length) return '<p class="muted">No weeks set up yet.</p>';
+
+  const rows = weekNums.map(w => {
+    const pick = S.picks?.[w]?.[pid];
+    if (!pick) return `<tr><td>Wk ${w}</td><td class="muted">no pick</td><td></td><td></td><td></td></tr>`;
+
+    const game = gameForTeam(S.weeks[w], pick.team);
+    let opponent = '';
+    let result = '<span class="pick-pending">pending</span>';
+    if (game) {
+      const isHome = game.home.abbr === pick.team;
+      const opp = isHome ? game.away : game.home;
+      opponent = `${isHome ? 'vs' : '@'} ${opp.school || opp.abbr}`;
+      if (game.completed) {
+        const won = game.winnerAbbr === pick.team;
+        // Scored from the PICKED team's side, not away-home as elsewhere — when
+        // you're answering "how did my pick do", "W 59-7" reads right and
+        // "W 7-59" makes you stop and work it out.
+        const mine = isHome ? game.home.score : game.away.score;
+        const theirs = isHome ? game.away.score : game.home.score;
+        // W/L coloured, score left plain — .pick-lost strikes through, which
+        // reads oddly over a scoreline.
+        result = `<span class="${won ? 'pick-won' : 'pick-lost'}">${won ? 'W' : 'L'}</span> ${mine}-${theirs}`;
+      }
+    }
+    const submitted = pick.pickedAt
+      ? new Date(pick.pickedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+      : '';
+
+    return `<tr>
+      <td>Wk ${w}</td>
+      <td><strong>${pick.team}</strong>${pick.autoPicked ? ' <span class="muted">(auto)</span>' : ''}</td>
+      <td class="muted">${opponent}</td>
+      <td>${result}</td>
+      <td class="muted">${submitted}</td>
+    </tr>`;
+  }).join('');
+
+  return `<table class="pick-history-table">
+    <thead><tr><th>Week</th><th>Pick</th><th>Opponent</th><th>Result</th><th>Submitted</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 function renderParticipantsSection() {
   const rows = Object.entries(S.participants || {});
   const currentWeek = S.config.currentWeek || 1;
@@ -631,19 +687,23 @@ function renderParticipantsSection() {
         ? `<span class="badge-warn">${losses}/${maxLosses} losses</span>`
         : '';
 
+      const picksOpen = ui.openPicks.has(pid);
+
       return `
       <div class="admin-row" style="justify-content:space-between; flex-wrap:wrap;">
         <span>${p.name} ${p.claimedBy ? '' : '<span class="muted">(unclaimed)</span>'} ${p.eliminatedWeek != null ? `<span class="badge-out">OUT W${p.eliminatedWeek}</span>` : lossBadge}
           ${pickStatus} ${presenceLabel}
         </span>
         <span>
+          <button class="btn secondary" data-togglepicks="${pid}">${picksOpen ? 'Hide picks' : 'Picks'}</button>
           ${p.claimedBy ? `<button class="btn secondary" data-unclaim="${pid}">Reset password</button>` : ''}
           ${p.eliminatedWeek != null
             ? `<button class="btn secondary" data-reinstate="${pid}">Reinstate</button>`
             : `<button class="btn secondary" data-eliminate="${pid}">Eliminate</button>`}
           <button class="btn danger" data-delete="${pid}">Remove</button>
         </span>
-      </div>`;
+      </div>
+      ${picksOpen ? `<div class="pick-history-wrap">${renderPickHistory(pid)}</div>` : ''}`;
     }).join('')}
   </div>`;
 }
@@ -656,11 +716,25 @@ function renderWeeksSection() {
   const sections = weeksToShow.map(n => {
     const week = S.weeks[n] || {};
     const games = Object.entries(week.games || {});
+    const open = ui.weekOpen[n] ?? (n === currentWeek);
+
+    // Collapsed weeks still need to say something useful at a glance, so the
+    // header carries the summary you'd otherwise expand to find.
+    const done = games.filter(([, g]) => g.completed).length;
+    const summary = games.length
+      ? `${games.length} games${done ? ` · ${done} final` : ''}${week.lockTime ? ` · locked ${new Date(week.lockTime).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : ''}`
+      : 'no games synced';
+
     return `<div class="admin-section">
       <div class="admin-row" style="justify-content:space-between;">
-        <h2 style="margin:0;">Week ${n} ${n === currentWeek ? '(current)' : ''}</h2>
-        ${n !== currentWeek ? `<button class="btn danger" data-removeweek="${n}">Remove</button>` : ''}
+        <h2 style="margin:0;cursor:pointer;user-select:none;" data-toggleweek="${n}">
+          <span class="week-caret">${open ? '▾' : '▸'}</span> Week ${n} ${n === currentWeek ? '(current)' : ''}
+        </h2>
+        ${open
+          ? (n !== currentWeek ? `<button class="btn danger" data-removeweek="${n}">Remove</button>` : '')
+          : `<span class="muted" style="font-size:0.8rem;">${summary}</span>`}
       </div>
+      ${!open ? '' : `
       <div class="admin-row">
         <label>Start <input type="date" id="weekStart-${n}" value="${week.startDate || ''}"></label>
         <label>End <input type="date" id="weekEnd-${n}" value="${week.endDate || ''}"></label>
@@ -677,6 +751,7 @@ function renderWeeksSection() {
           <span>${g.away.abbr} @ ${g.home.abbr} — ${g.completed ? `Final ${g.away.score}-${g.home.score}` : g.statusName} ${g.isOverride ? '(override)' : ''}</span>
           <button class="btn secondary" data-override="${n}:${gid}">Edit</button>
         </div>`).join('') : '<p class="muted">No games synced yet.</p>'}
+      `}
     </div>`;
   }).join('');
 
@@ -697,6 +772,17 @@ function wireAdminEvents() {
   document.querySelectorAll('[data-eliminate]').forEach(b => b.addEventListener('click', () => setEliminatedManually(b.dataset.eliminate)));
   document.querySelectorAll('[data-reinstate]').forEach(b => b.addEventListener('click', () => reinstateParticipant(b.dataset.reinstate)));
   document.querySelectorAll('[data-delete]').forEach(b => b.addEventListener('click', () => deleteParticipant(b.dataset.delete)));
+
+  document.querySelectorAll('[data-togglepicks]').forEach(b => b.addEventListener('click', () => {
+    const pid = b.dataset.togglepicks;
+    if (ui.openPicks.has(pid)) ui.openPicks.delete(pid); else ui.openPicks.add(pid);
+    render();
+  }));
+  document.querySelectorAll('[data-toggleweek]').forEach(el => el.addEventListener('click', () => {
+    const n = Number(el.dataset.toggleweek);
+    ui.weekOpen[n] = !(ui.weekOpen[n] ?? (n === (S.config.currentWeek || 1)));
+    render();
+  }));
 
   document.querySelectorAll('[data-savedates]').forEach(b => b.addEventListener('click', () => saveWeekDates(Number(b.dataset.savedates))));
   document.querySelectorAll('[data-sync]').forEach(b => b.addEventListener('click', () => syncWeek(Number(b.dataset.sync))));
