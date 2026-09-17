@@ -1,8 +1,8 @@
-import { SEC_TEAMS } from '../data-source/teams.js?v=40';
-import { conferenceOf } from '../data-source/power4-teams.js?v=40';
-import { fetchGames } from '../data-source/provider.js?v=40';
-import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=40';
-import { lossCountFor } from './elimination.js?v=40';
+import { SEC_TEAMS } from '../data-source/teams.js?v=41';
+import { conferenceOf } from '../data-source/power4-teams.js?v=41';
+import { fetchGames } from '../data-source/provider.js?v=41';
+import { RULE_DEFAULTS, gameForTeam, evaluateTeamsForWeek, isLocked, computeLockTime } from './eligibility.js?v=41';
+import { lossCountFor } from './elimination.js?v=41';
 
 // ---- on-device diagnostics ----
 // Three fix attempts guessed at plausible browser mechanisms (scroll

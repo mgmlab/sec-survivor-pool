@@ -18,7 +18,7 @@
 // filters down. Verified against stored data before switching: Weeks 1-3
 // reproduced with identical game IDs, nothing missing, nothing extra.
 
-import { isSecTeam } from './teams.js?v=40';
+import { isSecTeam } from './teams.js?v=41';
 
 const SCOREBOARD_URL =
   'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard';
@@ -58,9 +58,29 @@ function monthsBetween(startIso, endIso) {
 
 const MONTH_LIMIT = 300; // busiest observed month is ~51 SEC games
 
+// A season load is now up to five requests instead of one, so a single network
+// blip would otherwise fail the whole Schedule tab. Seen for real while
+// verifying this change: one five-month load threw "Failed to fetch" and an
+// immediate re-run succeeded. Retry network errors, 429 and 5xx — but never a
+// 4xx like the 400 that started all this, which is deterministic and would
+// just fail again more slowly.
+async function fetchWithRetry(url) {
+  const delays = [400, 1200];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url);
+      const retryable = res.status === 429 || res.status >= 500;
+      if (!retryable || attempt >= delays.length) return res;
+    } catch (e) {
+      if (attempt >= delays.length) throw e;
+    }
+    await new Promise(r => setTimeout(r, delays[attempt]));
+  }
+}
+
 async function fetchMonth(yyyymm) {
   const url = `${SCOREBOARD_URL}?groups=8&dates=${yyyymm}&limit=${MONTH_LIMIT}`;
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url);
   if (!res.ok) {
     throw new Error(`ESPN scoreboard request failed: ${res.status} ${res.statusText} (${yyyymm})`);
   }
