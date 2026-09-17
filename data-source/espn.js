@@ -6,20 +6,72 @@
 //   https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=8&dates=20241130
 //
 // The `year`/`week`/`seasontype` query params were observed to be unreliable
-// (silently ignored in some combinations), so this module always queries by
-// explicit `dates=YYYYMMDD-YYYYMMDD` range instead of ESPN's own week numbers.
+// (silently ignored in some combinations), so this module queries by date and
+// filters to the requested window itself, rather than trusting ESPN's weeks.
+//
+// 2026-09-17: ESPN stopped accepting date RANGES. Every `dates=YYYYMMDD-YYYYMMDD`
+// request — even a 2-day one, and even ranges that synced fine the week before —
+// now returns 400 `{"message":"Failed to get events endpoint."}`, which took
+// down the cron, admin's Sync button, and the players' Schedule tab (it loads
+// the whole season as one range) all at once. Single days and whole months
+// (`dates=YYYYMM`) still work, so this fetches the months a window touches and
+// filters down. Verified against stored data before switching: Weeks 1-3
+// reproduced with identical game IDs, nothing missing, nothing extra.
 
-import { isSecTeam } from './teams.js?v=39';
+import { isSecTeam } from './teams.js?v=40';
 
 const SCOREBOARD_URL =
   'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard';
 
-function toYyyymmdd(date) {
+/** "YYYY-MM-DD" for a Date or date string, read in UTC (how the admin date inputs are stored). */
+function toIsoDate(date) {
   const d = typeof date === 'string' ? new Date(date) : date;
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}${m}${day}`;
+  return `${y}-${m}-${day}`;
+}
+
+// ESPN assigns games to US Eastern calendar days, not UTC ones, and the window
+// has to be applied the same way. A late kickoff lands on the next day in UTC —
+// Week 1's Thursday opener, UAPB @ MIZ, is 2026-09-04T00:00Z but a Sep 3 game —
+// so filtering on the raw UTC timestamp would drop late games from the end of a
+// window and pull them into the following one.
+const ET_DAY = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+const easternDay = iso => ET_DAY.format(new Date(iso));
+
+/** Every YYYYMM that [start, end] touches, padded a day either side for ET/UTC edges. */
+function monthsBetween(startIso, endIso) {
+  const DAY = 24 * 3600 * 1000;
+  const cursor = new Date(new Date(startIso).getTime() - DAY);
+  cursor.setUTCDate(1);
+  const last = new Date(new Date(endIso).getTime() + DAY);
+  const months = [];
+  while (cursor <= last) {
+    months.push(`${cursor.getUTCFullYear()}${String(cursor.getUTCMonth() + 1).padStart(2, '0')}`);
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return months;
+}
+
+const MONTH_LIMIT = 300; // busiest observed month is ~51 SEC games
+
+async function fetchMonth(yyyymm) {
+  const url = `${SCOREBOARD_URL}?groups=8&dates=${yyyymm}&limit=${MONTH_LIMIT}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`ESPN scoreboard request failed: ${res.status} ${res.statusText} (${yyyymm})`);
+  }
+  const data = await res.json();
+  const events = Array.isArray(data.events) ? data.events : [];
+  if (events.length >= MONTH_LIMIT) {
+    // Would mean the month was silently truncated — surface it rather than
+    // quietly syncing a partial schedule.
+    console.warn(`ESPN returned ${events.length} events for ${yyyymm}, at the limit — results may be truncated.`);
+  }
+  return events;
 }
 
 function normalizeCompetitor(c) {
@@ -67,23 +119,25 @@ function normalizeEvent(event) {
 }
 
 /**
- * Fetch SEC-involving games in a date range (inclusive).
+ * Fetch SEC-involving games in a date range (inclusive, US Eastern game days).
+ * Same signature and results as the old single range request — see the note at
+ * the top of the file for why it now fetches by month.
  * @param {string|Date} startDate
  * @param {string|Date} endDate
  * @returns {Promise<ReturnType<typeof normalizeEvent>[]>}
  */
 export async function fetchGames(startDate, endDate) {
-  const dates = `${toYyyymmdd(startDate)}-${toYyyymmdd(endDate)}`;
-  const url = `${SCOREBOARD_URL}?groups=8&dates=${dates}&limit=200`;
+  const start = toIsoDate(startDate);
+  const end = toIsoDate(endDate);
 
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`ESPN scoreboard request failed: ${res.status} ${res.statusText}`);
-  }
-  const data = await res.json();
-  const events = Array.isArray(data.events) ? data.events : [];
+  const monthly = await Promise.all(monthsBetween(start, end).map(fetchMonth));
 
-  return events
+  // A padded window can touch the same event from two months' requests.
+  const byId = new Map();
+  for (const event of monthly.flat()) byId.set(event.id, event);
+
+  return [...byId.values()]
+    .filter(e => { const day = easternDay(e.date); return day >= start && day <= end; })
     .map(normalizeEvent)
     .filter(g => isSecTeam(g.home.abbr) || isSecTeam(g.away.abbr));
 }
